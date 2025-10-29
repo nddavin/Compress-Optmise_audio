@@ -4,6 +4,8 @@ import threading
 import subprocess
 import os
 import sys
+import logging
+import time
 from pathlib import Path
 import json
 
@@ -14,13 +16,19 @@ class AudioCompressorGUI:
         self.root.geometry("900x700")
         self.root.resizable(True, True)
 
-        # Import here to avoid circular imports
+        # Import here to avoid circular imports and improve startup time
         from compress_audio import (
             get_format_defaults, get_compressor_preset, get_multiband_preset,
             build_audio_filters, compress_audio, create_output_dirs,
-            process_files, check_ffmpeg, setup_logging
+            process_files, check_ffmpeg, setup_logging,
+            _get_config_manager
         )
-        from config import config_manager
+        from presets import preset_manager
+        # Lazy load config_manager
+        config_manager = _get_config_manager()
+
+        # Make preset_manager available globally in this class
+        self.preset_manager = preset_manager
 
         self.compress_audio = compress_audio
         self.process_files = process_files
@@ -139,6 +147,35 @@ class AudioCompressorGUI:
         ttk.Checkbutton(processing_frame, text="Parallel Processing", variable=self.parallel_var).grid(row=2, column=0, sticky='w', padx=(0,20))
         ttk.Checkbutton(processing_frame, text="Generate Preview", variable=self.preview_var).grid(row=2, column=1, sticky='w', padx=(0,20))
 
+        # Preset buttons
+        preset_frame = ttk.LabelFrame(parent, text="Quick Presets", padding=10)
+        preset_frame.pack(fill='x', padx=10, pady=5)
+
+        # Create preset buttons in a grid
+        presets = preset_manager.get_all_presets()
+        for i, preset in enumerate(presets[:6]):  # Show first 6 presets
+            btn = ttk.Button(preset_frame, text=f"{preset.icon} {preset.name}",
+                           command=lambda p=preset: self.apply_preset(p))
+            btn.grid(row=i//3, column=i%3, padx=5, pady=2, sticky='ew')
+            preset_frame.grid_columnconfigure(i%3, weight=1)
+
+        # Custom workflows section
+        workflow_frame = ttk.LabelFrame(parent, text="Custom Workflows", padding=10)
+        workflow_frame.pack(fill='x', padx=10, pady=5)
+
+        # Workflow buttons
+        workflows = preset_manager.get_all_custom_workflows()
+        for i, workflow in enumerate(workflows[:3]):  # Show first 3 workflows
+            btn = ttk.Button(workflow_frame, text=f"{workflow.icon} {workflow.name}",
+                           command=lambda w=workflow: self.execute_custom_workflow(w))
+            btn.grid(row=0, column=i, padx=5, pady=2, sticky='ew')
+            workflow_frame.grid_columnconfigure(i, weight=1)
+
+        # Workflow management buttons
+        ttk.Button(workflow_frame, text="Create Workflow", command=self.create_custom_workflow).grid(row=1, column=0, padx=5, pady=2, sticky='ew')
+        ttk.Button(workflow_frame, text="Manage Workflows", command=self.manage_workflows).grid(row=1, column=1, padx=5, pady=2, sticky='ew')
+        ttk.Button(workflow_frame, text="Smart Suggestions", command=self.show_smart_suggestions).grid(row=1, column=2, padx=5, pady=2, sticky='ew')
+
         # Control buttons
         button_frame = ttk.Frame(parent)
         button_frame.pack(fill='x', padx=10, pady=10)
@@ -149,7 +186,9 @@ class AudioCompressorGUI:
         self.stop_btn = ttk.Button(button_frame, text="Stop", command=self.stop_compression, state='disabled')
         self.stop_btn.pack(side='left', padx=(0,10))
 
+        ttk.Button(button_frame, text="Analyze Files", command=self.analyze_files).pack(side='left', padx=(0,10))
         ttk.Button(button_frame, text="Save Settings", command=self.save_config).pack(side='left', padx=(0,10))
+        ttk.Button(button_frame, text="Queue with Preset", command=self.queue_with_preset).pack(side='left')
 
         # Progress and log
         progress_frame = ttk.LabelFrame(parent, text="Progress", padding=10)
@@ -245,7 +284,9 @@ class AudioCompressorGUI:
         ttk.Button(apply_frame, text="Apply Recommendations to Settings",
                   command=self.apply_recommendations_to_settings).pack(side='left', padx=(0,10))
         ttk.Button(apply_frame, text="Clear Analysis",
-                  command=lambda: self.preview_text.delete(1.0, tk.END)).pack(side='left')
+                  command=lambda: self.preview_text.delete(1.0, tk.END)).pack(side='left', padx=(0,10))
+        ttk.Button(apply_frame, text="Generate Preview Clip",
+                  command=self.generate_preview_clip).pack(side='left')
 
     def browse_input(self):
         directory = filedialog.askdirectory(title="Select Input Directory")
@@ -299,42 +340,73 @@ class AudioCompressorGUI:
         try:
             self.status_var.set("Processing...")
 
-            # Build filter chain
-            filter_chain = self.build_audio_filters(
-                loudnorm_enabled=self.normalize_var.get(),
-                compressor_enabled=self.compressor_var.get(),
-                compressor_preset=self.comp_preset_var.get(),
-                multiband_enabled=self.multiband_var.get(),
-                multiband_preset=self.mb_preset_var.get(),
-                ml_noise_reduction=self.ml_noise_var.get(),
-                silence_trim_enabled=self.silence_trim_var.get(),
-                noise_gate_enabled=self.noise_gate_var.get(),
-                channels=self.channels_var.get(),
-                channel_layout=self.channel_layout_var.get() if self.channels_var.get() > 2 else None,
-                downmix=self.downmix_var.get(),
-                upmix=self.upmix_var.get()
-            )
+            # Validate inputs
+            input_dir = self.input_dir.get()
+            if not os.path.exists(input_dir):
+                raise ValueError(f"Input directory does not exist: {input_dir}")
 
-            # Get bitrates
-            bitrates = [int(b.strip()) for b in self.bitrates.get().split(',') if b.strip()]
+            output_dir = self.output_dir.get()
+            if not output_dir.strip():
+                raise ValueError("Output directory cannot be empty")
 
-            # Create output directories
-            output_dirs = self.create_output_dirs(self.output_dir.get(), bitrates)
+            # Build filter chain with error handling
+            try:
+                filter_chain = self.build_audio_filters(
+                    loudnorm_enabled=self.normalize_var.get(),
+                    compressor_enabled=self.compressor_var.get(),
+                    compressor_preset=self.comp_preset_var.get(),
+                    multiband_enabled=self.multiband_var.get(),
+                    multiband_preset=self.mb_preset_var.get(),
+                    ml_noise_reduction=self.ml_noise_var.get(),
+                    silence_trim_enabled=self.silence_trim_var.get(),
+                    noise_gate_enabled=self.noise_gate_var.get(),
+                    channels=self.channels_var.get(),
+                    channel_layout=self.channel_layout_var.get() if self.channels_var.get() > 2 else None,
+                    downmix=self.downmix_var.get(),
+                    upmix=self.upmix_var.get()
+                )
+            except Exception as e:
+                logging.warning(f"Failed to build audio filters: {e}. Continuing without filters.")
+                filter_chain = None
+
+            # Get bitrates with validation
+            try:
+                bitrates_str = self.bitrates.get().strip()
+                if not bitrates_str:
+                    raise ValueError("Bitrates cannot be empty")
+                bitrates = [int(b.strip()) for b in bitrates_str.split(',') if b.strip()]
+                if not bitrates:
+                    raise ValueError("No valid bitrates specified")
+            except ValueError as e:
+                raise ValueError(f"Invalid bitrates: {e}")
+
+            # Create output directories with error handling
+            try:
+                output_dirs = self.create_output_dirs(output_dir, bitrates)
+            except Exception as e:
+                raise RuntimeError(f"Failed to create output directories: {e}")
 
             # Process files
             extensions = (".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".opus")
 
             start_time = time.time()
-            processed, failed, total_input_size, total_output_size = self.process_files(
-                self.input_dir.get(), output_dirs, extensions, bitrates, filter_chain,
-                self.format_var.get(), self.channels_var.get(), True, False, self.parallel_var.get()
-            )
+            try:
+                processed, failed, total_input_size, total_output_size = self.process_files(
+                    input_dir, output_dirs, extensions, bitrates, filter_chain,
+                    self.format_var.get(), self.channels_var.get(), True, False, self.parallel_var.get()
+                )
+            except Exception as e:
+                raise RuntimeError(f"File processing failed: {e}")
 
-            # Update UI
+            # Update UI with progress
             self.root.after(0, lambda: self.update_results(processed, failed, total_input_size, total_output_size, start_time))
 
+        except ValueError as e:
+            self.root.after(0, lambda: messagebox.showerror("Input Error", str(e)))
+        except RuntimeError as e:
+            self.root.after(0, lambda: messagebox.showerror("Processing Error", str(e)))
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Error", f"Compression failed: {str(e)}"))
+            self.root.after(0, lambda: messagebox.showerror("Unexpected Error", f"An unexpected error occurred: {str(e)}"))
         finally:
             self.root.after(0, self.reset_ui)
 
@@ -368,9 +440,11 @@ class AudioCompressorGUI:
         self.preview_text.delete(1.0, tk.END)
         self.preview_text.insert(tk.END, "🔍 Analyzing audio files...\n\n")
 
-        try:
-            from audio_analysis import audio_analyzer
+        # Lazy load audio_analyzer
+        from compress_audio import _get_audio_analyzer
+        audio_analyzer = _get_audio_analyzer()
 
+        try:
             # Find first audio file in input directory
             input_dir = self.input_dir.get()
             if not os.path.exists(input_dir):
@@ -464,6 +538,7 @@ class AudioCompressorGUI:
             elif system == "linux":
                 subprocess.run(["xdg-open", preview_file], check=True)
             elif system == "windows":
+                import os
                 os.startfile(preview_file)
             else:
                 messagebox.showinfo("Preview", f"Preview file created: {preview_file}\nOpen it with your preferred audio player.")
@@ -472,6 +547,95 @@ class AudioCompressorGUI:
             messagebox.showerror("Playback Error", "Audio player not found on this system.")
         except Exception as e:
             messagebox.showerror("Playback Error", f"Could not play preview: {str(e)}")
+
+    def generate_preview_clip(self):
+        """Generate a short preview clip with current settings"""
+        try:
+            input_dir = self.input_dir.get()
+            if not os.path.exists(input_dir):
+                messagebox.showerror("Error", "Input directory does not exist!")
+                return
+
+            # Find first audio file
+            extensions = (".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".opus")
+            audio_file = None
+            for file in os.listdir(input_dir):
+                if file.lower().endswith(extensions):
+                    audio_file = os.path.join(input_dir, file)
+                    break
+
+            if not audio_file:
+                messagebox.showerror("Error", "No audio files found in input directory!")
+                return
+
+            # Build filter chain with current settings
+            filter_chain = self.build_audio_filters(
+                loudnorm_enabled=self.normalize_var.get(),
+                compressor_enabled=self.compressor_var.get(),
+                compressor_preset=self.comp_preset_var.get(),
+                multiband_enabled=self.multiband_var.get(),
+                multiband_preset=self.mb_preset_var.get(),
+                ml_noise_reduction=self.ml_noise_var.get(),
+                silence_trim_enabled=self.silence_trim_var.get(),
+                noise_gate_enabled=self.noise_gate_var.get(),
+                channels=self.channels_var.get(),
+                channel_layout=self.channel_layout_var.get() if self.channels_var.get() > 2 else None,
+                downmix=self.downmix_var.get(),
+                upmix=self.upmix_var.get()
+            )
+
+            # Create preview directory
+            preview_dir = os.path.join(self.output_dir.get(), "previews")
+            os.makedirs(preview_dir, exist_ok=True)
+
+            # Generate preview clip
+            filename = os.path.splitext(os.path.basename(audio_file))[0]
+            preview_file = os.path.join(preview_dir, f"{filename}_preview.{self.format_var.get()}")
+
+            success, _, _ = self.compress_audio(
+                input_file=audio_file,
+                output_file=preview_file,
+                bitrate=128,  # Use standard bitrate for preview
+                filter_chain=filter_chain,
+                output_format=self.format_var.get(),
+                channels=self.channels_var.get(),
+                preserve_metadata=True,
+                dry_run=False,
+                preview_mode=True
+            )
+
+            if success:
+                messagebox.showinfo("Success", f"Preview clip generated: {preview_file}")
+                # Switch to preview tab to show results
+                self.notebook.select(2)
+                self.preview_text.insert(tk.END, f"\n🎵 Preview clip generated: {os.path.basename(preview_file)}\n")
+            else:
+                messagebox.showerror("Error", "Failed to generate preview clip!")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Preview generation failed: {str(e)}")
+
+    def apply_preset(self, preset):
+        """Apply a workflow preset to the current settings"""
+        try:
+            from presets import preset_manager
+            gui_settings = preset_manager.apply_preset_to_gui(preset)
+
+            # Apply settings to GUI variables
+            for attr, value in gui_settings.items():
+                if hasattr(self, attr):
+                    var = getattr(self, attr)
+                    if hasattr(var, 'set'):
+                        var.set(value)
+
+            # Update dependent fields
+            self.on_format_change()
+            self.on_content_type_change()
+
+            messagebox.showinfo("Success", f"Preset '{preset.name}' applied successfully!")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not apply preset: {str(e)}")
 
     def apply_recommendations_to_settings(self):
         """Apply the recommendations from the preview analysis to the current settings"""
@@ -492,6 +656,251 @@ class AudioCompressorGUI:
 
         except Exception as e:
             messagebox.showerror("Error", f"Could not apply recommendations: {str(e)}")
+
+    def execute_custom_workflow(self, workflow):
+        """Execute a custom workflow"""
+        try:
+            input_dir = self.input_dir.get()
+            output_dir = self.output_dir.get()
+
+            if not os.path.exists(input_dir):
+                messagebox.showerror("Error", "Input directory does not exist!")
+                return
+
+            # Find audio files
+            extensions = (".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".opus")
+            input_files = []
+            for file in os.listdir(input_dir):
+                if file.lower().endswith(extensions):
+                    input_files.append(os.path.join(input_dir, file))
+
+            if not input_files:
+                messagebox.showerror("Error", "No audio files found in input directory!")
+                return
+
+            # Execute workflow
+            result = self.preset_manager.execute_custom_workflow(
+                workflow.id, input_files, output_dir,
+                progress_callback=self.update_progress
+            )
+
+            if result["success"]:
+                messagebox.showinfo("Success", f"Workflow '{workflow.name}' completed successfully!\nProcessed {len(result['processed_files'])} files.")
+            else:
+                messagebox.showerror("Workflow Failed", f"Workflow failed: {'; '.join(result['errors'])}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not execute workflow: {str(e)}")
+
+    def create_custom_workflow(self):
+        """Create a new custom workflow"""
+        try:
+            # Simple dialog for workflow creation
+            import tkinter.simpledialog as sd
+            name = sd.askstring("Create Workflow", "Enter workflow name:")
+            if not name:
+                return
+
+            description = sd.askstring("Create Workflow", "Enter workflow description:")
+            if not description:
+                return
+
+            workflow_id = self.preset_manager.create_custom_workflow(name, description)
+            messagebox.showinfo("Success", f"Workflow '{name}' created successfully!")
+
+            # Refresh the GUI to show the new workflow
+            self.refresh_workflow_buttons()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not create workflow: {str(e)}")
+
+    def manage_workflows(self):
+        """Open workflow management dialog"""
+        try:
+            # Create a simple workflow management window
+            manage_window = tk.Toplevel(self.root)
+            manage_window.title("Manage Custom Workflows")
+            manage_window.geometry("600x400")
+
+            # Listbox for workflows
+            listbox = tk.Listbox(manage_window, height=10)
+            listbox.pack(fill='both', expand=True, padx=10, pady=10)
+
+            # Populate listbox
+            workflows = self.preset_manager.get_all_custom_workflows()
+            for workflow in workflows:
+                listbox.insert(tk.END, f"{workflow.icon} {workflow.name} - {workflow.description}")
+
+            # Buttons
+            button_frame = ttk.Frame(manage_window)
+            button_frame.pack(fill='x', padx=10, pady=5)
+
+            ttk.Button(button_frame, text="Edit", command=lambda: self.edit_workflow(listbox, workflows)).pack(side='left', padx=5)
+            ttk.Button(button_frame, text="Delete", command=lambda: self.delete_workflow(listbox, workflows, manage_window)).pack(side='left', padx=5)
+            ttk.Button(button_frame, text="Close", command=manage_window.destroy).pack(side='right', padx=5)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open workflow manager: {str(e)}")
+
+    def show_smart_suggestions(self):
+        """Show intelligent parameter suggestions based on current analysis"""
+        try:
+            if not self.current_recommendations:
+                messagebox.showwarning("No Analysis", "Please analyze files first to get smart suggestions.")
+                return
+
+            # Get suggestions from preset manager
+            suggestions = self.preset_manager.suggest_parameters({"content_analysis": self.current_recommendations})
+
+            # Create suggestions window
+            suggest_window = tk.Toplevel(self.root)
+            suggest_window.title("Smart Parameter Suggestions")
+            suggest_window.geometry("500x400")
+
+            text_area = scrolledtext.ScrolledText(suggest_window, wrap=tk.WORD)
+            text_area.pack(fill='both', expand=True, padx=10, pady=10)
+
+            # Display suggestions
+            text_area.insert(tk.END, "🎯 Smart Parameter Suggestions\n\n")
+            text_area.insert(tk.END, f"Content Type: {suggestions['content_type']}\n")
+            text_area.insert(tk.END, f"Recommended Bitrates: {', '.join(map(str, suggestions['bitrates']))}\n")
+            text_area.insert(tk.END, f"Enable Compression: {suggestions['enable_compression']}\n")
+            text_area.insert(tk.END, f"Enable Multiband: {suggestions['enable_multiband']}\n")
+            text_area.insert(tk.END, f"Enable Loudness Norm: {suggestions['enable_loudnorm']}\n")
+            text_area.insert(tk.END, f"Confidence: {suggestions['confidence']:.2f}\n\n")
+
+            text_area.insert(tk.END, "Reasoning:\n")
+            for reason in suggestions['reasoning']:
+                text_area.insert(tk.END, f"• {reason}\n")
+
+            text_area.config(state='disabled')
+
+            # Apply button
+            ttk.Button(suggest_window, text="Apply Suggestions",
+                      command=lambda: self.apply_suggestions(suggestions, suggest_window)).pack(pady=10)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not show suggestions: {str(e)}")
+
+    def apply_suggestions(self, suggestions, window):
+        """Apply smart suggestions to settings"""
+        try:
+            self.format_var.set("mp3")  # Default format
+            self.bitrates.set(','.join(map(str, suggestions['bitrates'])))
+            self.content_type.set(suggestions['content_type'])
+            self.normalize_var.set(suggestions['enable_loudnorm'])
+            self.compressor_var.set(suggestions['enable_compression'])
+            self.multiband_var.set(suggestions['enable_multiband'])
+
+            messagebox.showinfo("Success", "Smart suggestions applied to settings!")
+            window.destroy()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not apply suggestions: {str(e)}")
+
+    def edit_workflow(self, listbox, workflows):
+        """Edit selected workflow"""
+        try:
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("No Selection", "Please select a workflow to edit.")
+                return
+
+            workflow = workflows[selection[0]]
+            # For now, just show info - full editing would need a more complex dialog
+            messagebox.showinfo("Workflow Info", f"Name: {workflow.name}\nDescription: {workflow.description}\nSteps: {len(workflow.steps)}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not edit workflow: {str(e)}")
+
+    def delete_workflow(self, listbox, workflows, window):
+        """Delete selected workflow"""
+        try:
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("No Selection", "Please select a workflow to delete.")
+                return
+
+            workflow = workflows[selection[0]]
+            if messagebox.askyesno("Confirm Delete", f"Delete workflow '{workflow.name}'?"):
+                self.preset_manager.delete_custom_workflow(workflow.id)
+                messagebox.showinfo("Success", f"Workflow '{workflow.name}' deleted.")
+                window.destroy()
+                self.refresh_workflow_buttons()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not delete workflow: {str(e)}")
+
+    def refresh_workflow_buttons(self):
+        """Refresh workflow buttons in the main interface"""
+        # This would need to be implemented to dynamically update the workflow buttons
+        # For now, just show a message
+        pass
+
+    def update_progress(self, message):
+        """Update progress display during workflow execution"""
+        self.status_var.set(message)
+        self.root.update_idletasks()
+
+    def queue_with_preset(self):
+        """Queue batch processing with a selected preset"""
+        try:
+            from presets import preset_manager
+            from job_queue import job_queue
+
+            # Get available presets
+            presets = preset_manager.get_all_presets()
+            if not presets:
+                messagebox.showerror("Error", "No presets available!")
+                return
+
+            # Create preset selection dialog
+            preset_names = [f"{p.icon} {p.name}" for p in presets]
+            preset_dict = {f"{p.icon} {p.name}": p for p in presets}
+
+            # Simple dialog for preset selection
+            import tkinter.simpledialog as sd
+            selected = sd.askstring("Select Preset", "Choose a preset for batch processing:",
+                                  initialvalue=preset_names[0])
+
+            if not selected or selected not in preset_dict:
+                return
+
+            preset = preset_dict[selected]
+
+            # Validate inputs
+            input_dir = self.input_dir.get()
+            output_dir = self.output_dir.get()
+
+            if not os.path.exists(input_dir):
+                messagebox.showerror("Error", "Input directory does not exist!")
+                return
+
+            # Queue the batch processing
+            job_ids = job_queue.add_preset_batch(input_dir, output_dir, preset.name)
+
+            messagebox.showinfo("Success", f"Queued {len(job_ids)} jobs for preset '{preset.name}'")
+
+            # Start job queue if not running
+            job_queue.start()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to queue batch processing: {str(e)}")
+
+    def analyze_files(self):
+        """Quick analysis of input files for recommendations"""
+        try:
+            input_dir = self.input_dir.get()
+            if not os.path.exists(input_dir):
+                messagebox.showerror("Error", "Input directory does not exist!")
+                return
+
+            # Switch to preview tab and run analysis
+            self.notebook.select(2)  # Preview tab index
+            self.generate_preview()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Analysis failed: {str(e)}")
 
     def load_config(self):
         # Load settings from config
@@ -515,7 +924,14 @@ class AudioCompressorGUI:
             self.config_manager.set_default_setting('compressor_enabled', self.compressor_var.get())
             self.config_manager.set_default_setting('multiband_enabled', self.multiband_var.get())
             self.config_manager.set_default_setting('ml_noise_reduction', self.ml_noise_var.get())
-            messagebox.showinfo("Success", "Settings saved successfully!")
+
+            # Validate configuration after saving
+            is_valid, errors = self.config_manager.validate_config()
+            if not is_valid:
+                error_msg = "Configuration saved but has validation errors:\n" + "\n".join(errors)
+                messagebox.showwarning("Configuration Warnings", error_msg)
+            else:
+                messagebox.showinfo("Success", "Settings saved successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save settings: {str(e)}")
 

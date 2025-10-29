@@ -1,0 +1,52 @@
+{
+  "67cf66aa-09a6-42f1-b0e2-64965e227138": {
+    "id": "67cf66aa-09a6-42f1-b0e2-64965e227138",
+    "name": "Test Workflow",
+    "description": "A test custom workflow",
+    "icon": "🔧",
+    "category": "custom",
+    "steps": [
+      {
+        "step_type": "analyze",
+        "enabled": true,
+        "parameters": {},
+        "dependencies": [],
+        "order": 0
+      },
+      {
+        "step_type": "compress",
+        "enabled": true,
+        "parameters": {
+          "bitrate": 128,
+          "format": "mp3"
+        },
+        "dependencies": [],
+        "order": 1
+      }
+    ],
+    "created_at": 1761753826.065848,
+    "updated_at": 1761753826.068811
+  },
+  "ae5b8312-0bfc-404e-8d50-0279ced2c99f": {
+    "id": "ae5b8312-0bfc-404e-8d50-0279ced2c99f",
+    "name": "Simple Compress Workflow",
+    "description": "Compress audio files",
+    "icon": "🎵",
+    "category": "custom",
+    "steps": [
+      {
+        "step_type": "compress",
+        "enabled": true,
+        "parameters": {
+          "bitrate": 128,
+          "format": "mp3",
+          "preserve_metadata": true
+        },
+        "dependencies": [],
+        "order": 0
+      }
+    ],
+    "created_at": 1761753834.327086,
+    "updated_at": 1761753834.328366
+  }
+}

@@ -41,6 +41,7 @@ class CompressionJob:
     end_time: Optional[float] = None
     input_size: int = 0
     output_size: int = 0
+    preset_name: Optional[str] = None  # Name of the preset used
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -62,6 +63,7 @@ class CompressionJob:
             "end_time": self.end_time,
             "input_size": self.input_size,
             "output_size": self.output_size,
+            "preset_name": self.preset_name,
             "created_at": self.created_at,
             "updated_at": self.updated_at
         }
@@ -85,6 +87,7 @@ class CompressionJob:
             end_time=data.get("end_time"),
             input_size=data.get("input_size", 0),
             output_size=data.get("output_size", 0),
+            preset_name=data.get("preset_name"),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time())
         )
@@ -135,11 +138,77 @@ class JobQueue:
         with self.lock:
             self.jobs[job.job_id] = job
             # Priority queue: (priority, created_at, job_id)
-            self.queue.put((job.priority.value, job.created_at, job.job_id))
+            self.queue.put((-job.priority.value, job.created_at, job.job_id))
             self._save_jobs()
 
-        logging.info(f"Added job {job.job_id} to queue")
+        logging.info(f"Added job {job.job_id} to queue (preset: {job.preset_name or 'none'})")
         return job.job_id
+
+    def add_preset_batch(self, input_dir: str, output_dir: str, preset_name: str) -> List[str]:
+        """Add a batch of jobs using a preset configuration"""
+        from presets import preset_manager
+
+        preset = preset_manager.get_preset(preset_name)
+        if not preset:
+            raise ValueError(f"Preset '{preset_name}' not found")
+
+        # Build filter chain for the preset
+        from compress_audio import build_audio_filters
+        filter_chain = build_audio_filters(
+            loudnorm_enabled=preset.loudnorm_enabled,
+            compressor_enabled=preset.compressor_enabled,
+            compressor_preset=preset.compressor_preset,
+            multiband_enabled=preset.multiband_enabled,
+            multiband_preset=preset.multiband_preset,
+            ml_noise_reduction=preset.ml_noise_reduction,
+            silence_trim_enabled=preset.silence_trim_enabled,
+            noise_gate_enabled=preset.noise_gate_enabled,
+            channels=preset.channels
+        )
+
+        # Create output directories
+        from compress_audio import create_output_dirs
+        output_dirs = create_output_dirs(output_dir, preset.bitrates)
+
+        # Find audio files
+        import os
+        extensions = (".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".opus")
+        audio_files = []
+
+        for file in os.listdir(input_dir):
+            if file.lower().endswith(extensions):
+                audio_files.append(os.path.join(input_dir, file))
+
+        if not audio_files:
+            raise ValueError(f"No audio files found in {input_dir}")
+
+        # Create jobs for each file and bitrate combination
+        job_ids = []
+        for audio_file in audio_files:
+            filename = os.path.splitext(os.path.basename(audio_file))[0]
+
+            for bitrate in preset.bitrates:
+                from compress_audio import get_format_defaults
+                format_info = get_format_defaults(preset.format)
+                ext = format_info.get("ext", ".mp3")
+                output_file = os.path.join(output_dirs[bitrate], f"{filename}{ext}")
+
+                job = CompressionJob(
+                    job_id=f"{preset_name}_{filename}_{bitrate}",
+                    input_file=audio_file,
+                    output_file=output_file,
+                    bitrate=bitrate,
+                    format=preset.format,
+                    filter_chain=filter_chain,
+                    channels=preset.channels,
+                    preserve_metadata=True,
+                    preset_name=preset_name
+                )
+
+                job_ids.append(self.add_job(job))
+
+        logging.info(f"Added {len(job_ids)} jobs for preset '{preset_name}'")
+        return job_ids
 
     def cancel_job(self, job_id: str) -> bool:
         """Cancel a pending job"""
@@ -229,7 +298,7 @@ class JobQueue:
                 logging.error(f"Error in worker loop: {e}")
 
     def _process_job(self, job: CompressionJob) -> bool:
-        """Process a single compression job"""
+        """Process a single compression job with comprehensive error recovery"""
         try:
             from compress_audio import compress_audio
 
@@ -237,32 +306,76 @@ class JobQueue:
             job.progress = 10.0
             job.updated_at = time.time()
 
-            # Perform compression
-            success, input_size, output_size = compress_audio(
-                input_file=job.input_file,
-                output_file=job.output_file,
-                bitrate=job.bitrate,
-                filter_chain=job.filter_chain,
-                output_format=job.format,
-                channels=job.channels,
-                preserve_metadata=job.preserve_metadata,
-                dry_run=False,
-                preview_mode=False
-            )
-
-            job.progress = 100.0
-            job.input_size = input_size
-            job.output_size = output_size
-
-            if not success:
-                job.error_message = "Compression failed"
+            # Validate job inputs before processing
+            if not os.path.exists(job.input_file):
+                job.error_message = f"Input file does not exist: {job.input_file}"
+                logging.error(job.error_message)
                 return False
 
-            return True
+            if not os.access(job.input_file, os.R_OK):
+                job.error_message = f"Input file is not readable: {job.input_file}"
+                logging.error(job.error_message)
+                return False
+
+            # Ensure output directory exists
+            output_dir = os.path.dirname(job.output_file)
+            if output_dir and not os.path.exists(output_dir):
+                try:
+                    os.makedirs(output_dir, exist_ok=True)
+                except OSError as e:
+                    job.error_message = f"Cannot create output directory: {e}"
+                    logging.error(job.error_message)
+                    return False
+
+            job.progress = 25.0
+            job.updated_at = time.time()
+
+            # Perform compression with retry logic
+            max_retries = 2
+            for attempt in range(max_retries + 1):
+                try:
+                    success, input_size, output_size = compress_audio(
+                        input_file=job.input_file,
+                        output_file=job.output_file,
+                        bitrate=job.bitrate,
+                        filter_chain=job.filter_chain,
+                        output_format=job.format,
+                        channels=job.channels,
+                        preserve_metadata=job.preserve_metadata,
+                        dry_run=False,
+                        preview_mode=False
+                    )
+
+                    if success:
+                        job.progress = 100.0
+                        job.input_size = input_size
+                        job.output_size = output_size
+                        job.updated_at = time.time()
+                        return True
+                    else:
+                        if attempt == max_retries:
+                            job.error_message = "Compression failed after all retries"
+                            logging.error(f"Job {job.job_id} failed: {job.error_message}")
+                            return False
+                        else:
+                            logging.warning(f"Compression attempt {attempt + 1} failed for job {job.job_id}, retrying")
+                            time.sleep(1)
+
+                except Exception as e:
+                    if attempt == max_retries:
+                        job.error_message = f"Compression failed: {str(e)}"
+                        logging.error(f"Job {job.job_id} failed after {max_retries + 1} attempts: {e}")
+                        return False
+                    else:
+                        logging.warning(f"Compression attempt {attempt + 1} failed for job {job.job_id}: {e}")
+                        time.sleep(1)
+
+            job.error_message = "Compression failed after all retries"
+            return False
 
         except Exception as e:
-            job.error_message = str(e)
-            logging.error(f"Job {job.job_id} failed: {e}")
+            job.error_message = f"Unexpected error: {str(e)}"
+            logging.error(f"Job {job.job_id} failed with unexpected error: {e}")
             return False
 
     def _save_jobs(self):

@@ -36,22 +36,28 @@ class CloudStorageManager:
         self.bucket_name = bucket_name or os.getenv("AWS_BUCKET_NAME")
         self.region = region
         self.s3_client = None
+        self._connection_pool = None
         self._initialize_client()
 
     def _initialize_client(self):
-        """Initialize S3 client"""
+        """Initialize S3 client with connection pooling"""
         if not HAS_BOTO3:
             self.s3_client = None
             return
 
         try:
-            self.s3_client = boto3.client(
-                's3',
-                region_name=self.region,
-                aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-                aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
-            )
-            logging.info("S3 client initialized successfully")
+            # Import resource pool for connection management
+            from resource_pool import get_connection
+
+            # Use connection caching for S3 clients
+            def create_s3_client():
+                return boto3.client(
+                    's3',
+                    region_name=self.region
+                )
+
+            self.s3_client = get_connection(f"s3_{self.bucket_name}_{self.region}", create_s3_client)
+            logging.info("S3 client initialized successfully with connection caching")
         except NoCredentialsError:
             logging.warning("AWS credentials not found. Cloud features will be disabled.")
             self.s3_client = None
@@ -64,46 +70,77 @@ class CloudStorageManager:
         return self.s3_client is not None and self.bucket_name is not None
 
     def upload_file(self, local_path: str, s3_key: str) -> bool:
-        """Upload a file to S3"""
+        """Upload a file to S3 with retry logic"""
         if not self.is_available():
+            logging.warning("Cloud storage not available, upload skipped")
             return False
 
-        try:
-            self.s3_client.upload_file(local_path, self.bucket_name, s3_key)
-            logging.info(f"Uploaded {local_path} to s3://{self.bucket_name}/{s3_key}")
-            return True
-        except ClientError as e:
-            logging.error(f"Failed to upload {local_path}: {e}")
+        if not os.path.exists(local_path):
+            logging.error(f"Local file does not exist: {local_path}")
             return False
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.s3_client.upload_file(local_path, self.bucket_name, s3_key)
+                logging.info(f"Uploaded {local_path} to s3://{self.bucket_name}/{s3_key}")
+                return True
+            except ClientError as e:
+                if attempt == max_retries - 1:
+                    logging.error(f"Failed to upload {local_path} after {max_retries} attempts: {e}")
+                    return False
+                else:
+                    logging.warning(f"Upload attempt {attempt + 1} failed, retrying: {e}")
+                    time.sleep(2 ** attempt)  # Exponential backoff
+            except Exception as e:
+                logging.error(f"Unexpected error during upload: {e}")
+                return False
+
+        return False
 
     def download_file(self, s3_key: str, local_path: str) -> bool:
-        """Download a file from S3"""
+        """Download a file from S3 with retry logic"""
         if not self.is_available():
+            logging.warning("Cloud storage not available, download skipped")
             return False
 
-        try:
-            self.s3_client.download_file(self.bucket_name, s3_key, local_path)
-            logging.info(f"Downloaded s3://{self.bucket_name}/{s3_key} to {local_path}")
-            return True
-        except ClientError as e:
-            logging.error(f"Failed to download {s3_key}: {e}")
-            return False
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.s3_client.download_file(self.bucket_name, s3_key, local_path)
+                logging.info(f"Downloaded s3://{self.bucket_name}/{s3_key} to {local_path}")
+                return True
+            except ClientError as e:
+                if attempt == max_retries - 1:
+                    logging.error(f"Failed to download {s3_key} after {max_retries} attempts: {e}")
+                    return False
+                else:
+                    logging.warning(f"Download attempt {attempt + 1} failed, retrying: {e}")
+                    time.sleep(2 ** attempt)  # Exponential backoff
+            except Exception as e:
+                logging.error(f"Unexpected error during download: {e}")
+                return False
 
+        return False
+
+    def list_files(self, prefix: str = "") -> List[str]:
+        """List files in S3 bucket with optional prefix"""
     def list_files(self, prefix: str = "") -> List[str]:
         """List files in S3 bucket with optional prefix"""
         if not self.is_available():
             return []
 
         try:
-            response = self.s3_client.list_objects_v2(Bucket=self.bucket_name, Prefix=prefix)
-            if 'Contents' in response:
-                return [obj['Key'] for obj in response['Contents']]
-            return []
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
+            keys = []
+            for page in pages:
+                if 'Contents' in page:
+                    keys.extend([obj['Key'] for obj in page['Contents']])
+            return keys
         except ClientError as e:
             logging.error(f"Failed to list files: {e}")
             return []
-
-    def delete_file(self, s3_key: str) -> bool:
         """Delete a file from S3"""
         if not self.is_available():
             return False
@@ -153,10 +190,10 @@ class DistributedProcessor:
             if worker_id in self.workers:
                 del self.workers[worker_id]
                 logging.info(f"Unregistered worker {worker_id}")
-
     def submit_task(self, task_data: Dict[str, Any]) -> str:
         """Submit a processing task for distributed execution"""
-        task_id = f"task_{int(time.time())}_{hash(str(task_data)) % 10000}"
+        import uuid
+        task_id = f"task_{int(time.time())}_{uuid.uuid4().hex[:8]}"
 
         task = {
             "task_id": task_id,
@@ -177,6 +214,7 @@ class DistributedProcessor:
         self._assign_task(task_id)
 
         logging.info(f"Submitted task {task_id}")
+        return task_id
         return task_id
 
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
@@ -327,6 +365,8 @@ class ProcessingNode:
             # Clean up on error
             if os.path.exists(local_input):
                 os.remove(local_input)
+            if 'local_output' in locals() and os.path.exists(local_output):
+                os.remove(local_output)
             raise e
 
     def _process_analysis_task(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -339,8 +379,9 @@ class ProcessingNode:
             raise Exception(f"Failed to download input file {input_key}")
 
         try:
-            # Perform analysis
-            from audio_analysis import audio_analyzer
+            # Perform analysis - lazy load audio_analyzer
+            from compress_audio import _get_audio_analyzer
+            audio_analyzer = _get_audio_analyzer()
 
             analysis = audio_analyzer.analyze_file(local_input)
 
@@ -531,14 +572,27 @@ class StorageManager:
         self.offline_manager = OfflineStorageManager(self.offline_storage_dir)
 
     def store_file(self, local_path: str, key: str, metadata: Dict[str, Any] = None, prefer_cloud: bool = True) -> bool:
-        """Store a file using preferred storage method"""
+        """Store a file using preferred storage method with graceful degradation"""
+        if not os.path.exists(local_path):
+            logging.error(f"Local file does not exist: {local_path}")
+            return False
+
         if prefer_cloud and self.use_cloud:
-            success = self.cloud_manager.upload_file(local_path, key)
-            if success:
-                return True
+            try:
+                success = self.cloud_manager.upload_file(local_path, key)
+                if success:
+                    return True
+                else:
+                    logging.warning("Cloud upload failed, falling back to offline storage")
+            except Exception as e:
+                logging.warning(f"Cloud storage error, falling back to offline storage: {e}")
 
         # Fallback to offline storage
-        return self.offline_manager.store_file(local_path, key, metadata)
+        try:
+            return self.offline_manager.store_file(local_path, key, metadata)
+        except Exception as e:
+            logging.error(f"Failed to store file in offline storage: {e}")
+            return False
 
     def retrieve_file(self, key: str, local_path: str, prefer_cloud: bool = True) -> bool:
         """Retrieve a file using preferred storage method"""
@@ -560,25 +614,23 @@ class StorageManager:
         if include_offline:
             files.extend(self.offline_manager.list_files(prefix))
 
-        return list(set(files))  # Remove duplicates
+        return files
 
     def delete_file(self, key: str) -> bool:
         """Delete a file from all storage methods"""
-        success = True
+        cloud_success = True
+        offline_success = True
 
         if self.use_cloud:
-            success &= self.cloud_manager.delete_file(key)
+            cloud_success = self.cloud_manager.delete_file(key)
 
-        success &= self.offline_manager.delete_file(key)
+        offline_success = self.offline_manager.delete_file(key)
 
-        return success
+        return cloud_success and offline_success
 
     def get_file_info(self, key: str) -> Optional[Dict[str, Any]]:
         """Get file information, preferring cloud if available"""
-        if self.use_cloud:
-            # Cloud doesn't have detailed metadata, so check offline
-            pass
-
+        # Cloud doesn't have detailed metadata, so check offline
         return self.offline_manager.get_file_info(key)
 
     def cleanup_storage(self, max_age_days: int = 30) -> Dict[str, int]:
@@ -604,7 +656,25 @@ class StorageManager:
 
         return stats
 
-# Global instances
-cloud_manager = CloudStorageManager()
-storage_manager = UnifiedStorageManager()
-distributed_processor = DistributedProcessor(cloud_manager)
+# Global instances (lazy initialization)
+_cloud_manager = None
+_storage_manager = None
+_distributed_processor = None
+
+def get_cloud_manager() -> CloudStorageManager:
+    global _cloud_manager
+    if _cloud_manager is None:
+        _cloud_manager = CloudStorageManager()
+    return _cloud_manager
+
+def get_storage_manager() -> StorageManager:
+    global _storage_manager
+    if _storage_manager is None:
+        _storage_manager = StorageManager()
+    return _storage_manager
+
+def get_distributed_processor() -> DistributedProcessor:
+    global _distributed_processor
+    if _distributed_processor is None:
+        _distributed_processor = DistributedProcessor(get_cloud_manager())
+    return _distributed_processor

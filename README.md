@@ -219,7 +219,28 @@ python compress_audio.py --gui
 
 Architecture
 
-Pure Sound consists of several modular components:
+Pure Sound consists of several modular components with modern design patterns:
+
+## Core Architecture Patterns
+
+### Event-Driven Communication
+- **Centralized Event Bus** (`events.py`): All modules communicate through a pub-sub event system
+- **Loose Coupling**: Modules don't need direct dependencies on each other
+- **Asynchronous Processing**: Events are processed asynchronously for better performance
+- **Event History**: Full event history for debugging and monitoring
+
+### Dependency Injection
+- **Service Container** (`di_container.py`): Centralized dependency management
+- **Automatic Injection**: Dependencies are resolved automatically based on type hints
+- **Service Locator**: Global service registry for easy access
+- **Lifecycle Management**: Services can be initialized and shut down properly
+
+### Standardized Interfaces
+- **Abstract Base Classes** (`interfaces.py`): Common interfaces for audio processors, storage providers, etc.
+- **Protocol-Based Design**: Type-safe interfaces using Python protocols
+- **Data Transfer Objects**: Standardized data structures for module communication
+
+## Module Components
 
 - **Core Engine** (`compress_audio.py`): Main compression logic and CLI interface
 - **Configuration Manager** (`config.py`): JSON-based settings and preset management
@@ -228,7 +249,56 @@ Pure Sound consists of several modular components:
 - **Cloud Integration** (`cloud_integration.py`): Distributed processing and storage
 - **Multi-Stream Processor** (`multi_stream.py`): Multiple output format generation
 - **GUI Interface** (`gui.py`): Visual parameter adjustment and monitoring
-- **Test Suite** (`test_compress_audio.py`): Comprehensive unit testing
+- **Test Suite** (`test_new_system.py`): Comprehensive unit testing for new architecture
+
+## Module Interactions
+
+The system is designed with clear separation of concerns and standardized communication:
+
+1. **compress_audio.py**: Main CLI interface and FFmpeg orchestration
+2. **gui.py**: Tkinter-based graphical user interface
+3. **job_queue.py**: Background job processing and queue management
+4. **audio_analysis.py**: Audio file analysis and recommendations
+5. **config.py**: Configuration management and persistence
+6. **cloud_integration.py**: Cloud storage and distributed processing
+7. **multi_stream.py**: Multiple output stream generation
+
+All modules communicate through the event system and use dependency injection for service resolution.
+
+## Code Examples
+
+### Events System
+```python
+from events import event_bus, publish_event
+
+# Publish an event
+publish_event("file.processed", {"file": "audio.wav", "size": 1024}, "processor")
+
+# Subscribe to events
+subscription_id = event_bus.subscribe("file.*", callback_function)
+```
+
+### Dependency Injection
+```python
+from di_container import di_container, get_service
+
+# Register services
+di_container.register_singleton(AudioProcessor)
+di_container.register_transient(TempFileManager)
+
+# Resolve services
+processor = get_service(AudioProcessor)
+```
+
+### Standardized Interfaces
+```python
+from interfaces import AudioProcessor, AudioFileInfo, CompressionJob
+
+class MyProcessor(AudioProcessor):
+    def process_file(self, input_path: str, output_path: str, **kwargs) -> bool:
+        # Implementation here
+        pass
+```
 
 Input/Output
 - **Input Formats**: WAV, MP3, M4A, FLAC, AAC, OGG, Opus

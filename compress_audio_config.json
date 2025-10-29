@@ -60,7 +60,10 @@
         "high_makeup": 1
       }
     },
-    "custom": {}
+    "custom": {
+      "compressor": {},
+      "multiband": {}
+    }
   },
   "output_formats": {
     "mp3": {

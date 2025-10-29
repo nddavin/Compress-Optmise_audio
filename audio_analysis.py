@@ -26,10 +26,10 @@ class AudioAnalyzer:
             return False
 
     def analyze_file(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Analyze an audio file and return comprehensive statistics"""
+        """Analyze an audio file and return comprehensive statistics with graceful degradation"""
         if not self.ffmpeg_available:
-            logging.warning("FFmpeg not available for audio analysis")
-            return None
+            logging.warning("FFmpeg not available for audio analysis. Returning basic fallback analysis.")
+            return self._fallback_analysis(file_path)
 
         if not os.path.exists(file_path):
             logging.error(f"Audio file does not exist: {file_path}")
@@ -42,7 +42,7 @@ class AudioAnalyzer:
                 "-show_format", "-show_streams", file_path
             ]
 
-            result = subprocess.run(probe_cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(probe_cmd, capture_output=True, text=True, check=True, timeout=30)
             probe_data = json.loads(result.stdout)
 
             # Extract audio stream info
@@ -54,13 +54,17 @@ class AudioAnalyzer:
 
             if not audio_stream:
                 logging.error(f"No audio stream found in {file_path}")
-                return None
+                return self._fallback_analysis(file_path)
 
             # Get detailed audio statistics
             stats = self._extract_audio_stats(audio_stream, probe_data.get("format", {}))
 
-            # Analyze content characteristics
-            content_analysis = self._analyze_content_characteristics(file_path, stats)
+            # Analyze content characteristics with fallback
+            try:
+                content_analysis = self._analyze_content_characteristics(file_path, stats)
+            except Exception as e:
+                logging.warning(f"Content analysis failed, using fallback: {e}")
+                content_analysis = self._fallback_content_analysis(stats)
 
             return {
                 "basic_info": stats,
@@ -68,9 +72,15 @@ class AudioAnalyzer:
                 "recommendations": self._generate_recommendations(stats, content_analysis)
             }
 
+        except subprocess.TimeoutExpired:
+            logging.warning(f"Analysis timed out for {file_path}, using fallback analysis")
+            return self._fallback_analysis(file_path)
         except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
             logging.error(f"Failed to analyze audio file {file_path}: {e}")
-            return None
+            return self._fallback_analysis(file_path)
+        except Exception as e:
+            logging.error(f"Unexpected error during analysis of {file_path}: {e}")
+            return self._fallback_analysis(file_path)
 
     def _extract_audio_stats(self, stream: Dict[str, Any], format_info: Dict[str, Any]) -> Dict[str, Any]:
         """Extract basic audio statistics from ffprobe output"""
@@ -108,15 +118,15 @@ class AudioAnalyzer:
             temp_wav = self._extract_audio_segment(file_path, 30)
 
             if temp_wav and os.path.exists(temp_wav):
-                # Analyze the extracted segment
-                analysis.update(self._analyze_audio_segment(temp_wav, stats))
-
-                # Clean up temp file
-                os.remove(temp_wav)
+                try:
+                    # Analyze the extracted segment
+                    analysis.update(self._analyze_audio_segment(temp_wav, stats))
+                finally:
+                    # Clean up temp file
+                    os.remove(temp_wav)
 
         except Exception as e:
             logging.warning(f"Content analysis failed: {e}")
-
         return analysis
 
     def _extract_audio_segment(self, input_file: str, duration: int = 30) -> Optional[str]:
@@ -307,9 +317,10 @@ class AudioAnalyzer:
         return recommendations
 
     def get_quick_stats(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Get quick statistics without full analysis"""
+        """Get quick statistics without full analysis with graceful degradation"""
         if not self.ffmpeg_available:
-            return None
+            # Fallback to basic file stats
+            return self._get_basic_file_stats(file_path)
 
         try:
             probe_cmd = [
@@ -317,7 +328,7 @@ class AudioAnalyzer:
                 "-show_format", "-show_streams", file_path
             ]
 
-            result = subprocess.run(probe_cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(probe_cmd, capture_output=True, text=True, check=True, timeout=15)
             data = json.loads(result.stdout)
 
             audio_stream = None
@@ -339,10 +350,77 @@ class AudioAnalyzer:
                     "size_mb": stats["size_mb"]
                 }
 
+        except subprocess.TimeoutExpired:
+            logging.warning(f"Quick stats timed out for {file_path}, using basic file stats")
+            return self._get_basic_file_stats(file_path)
         except Exception as e:
             logging.error(f"Failed to get quick stats for {file_path}: {e}")
+            return self._get_basic_file_stats(file_path)
 
         return None
+
+    def _get_basic_file_stats(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get basic file statistics when FFmpeg is unavailable"""
+        try:
+            if not os.path.exists(file_path):
+                return None
+
+            file_size = os.path.getsize(file_path)
+            return {
+                "codec": "unknown",
+                "sample_rate": 44100,  # Assume standard rate
+                "channels": 2,  # Assume stereo
+                "duration": 0,  # Unknown
+                "bitrate_kbps": 0,  # Unknown
+                "size_mb": file_size / (1024 * 1024)
+            }
+        except Exception as e:
+            logging.error(f"Failed to get basic file stats for {file_path}: {e}")
+            return None
+
+    def _fallback_analysis(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Provide fallback analysis when full analysis fails"""
+        try:
+            basic_stats = self._get_basic_file_stats(file_path)
+            if not basic_stats:
+                return None
+
+            # Create minimal analysis structure
+            return {
+                "basic_info": basic_stats,
+                "content_analysis": {
+                    "content_type": "unknown",
+                    "dynamic_range": "unknown",
+                    "frequency_content": "unknown",
+                    "noise_level": "unknown",
+                    "speech_probability": 0.0,
+                    "music_probability": 0.0
+                },
+                "recommendations": {
+                    "format": "mp3",
+                    "bitrates": [128],
+                    "content_type": "unknown",
+                    "enable_compression": False,
+                    "enable_multiband": False,
+                    "enable_loudnorm": True,
+                    "enable_noise_reduction": False,
+                    "reasoning": ["Analysis unavailable - using conservative defaults"]
+                }
+            }
+        except Exception as e:
+            logging.error(f"Fallback analysis failed for {file_path}: {e}")
+            return None
+
+    def _fallback_content_analysis(self, stats: Dict[str, Any]) -> Dict[str, Any]:
+        """Provide fallback content analysis"""
+        return {
+            "content_type": "unknown",
+            "dynamic_range": "unknown",
+            "frequency_content": "unknown",
+            "noise_level": "unknown",
+            "speech_probability": 0.0,
+            "music_probability": 0.0
+        }
 
 # Global analyzer instance
 audio_analyzer = AudioAnalyzer()

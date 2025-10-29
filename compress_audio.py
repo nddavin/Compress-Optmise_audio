@@ -6,21 +6,58 @@ import sys
 import time
 import multiprocessing
 from pathlib import Path
-from config import config_manager
-from audio_analysis import audio_analyzer
-from job_queue import job_queue
-from cloud_integration import cloud_manager, distributed_processor, storage_manager
-from multi_stream import multi_stream_processor, selective_channel_processor
+
+# Import memory management
+from resource_pool import memory_manager
+
+# Lazy imports for better startup performance with resource pooling
+def _get_config_manager():
+    from resource_pool import lazy_load
+    return lazy_load("config_manager")
+
+def _get_audio_analyzer():
+    from resource_pool import lazy_load
+    return lazy_load("audio_analyzer")
+
+def _get_job_queue():
+    from resource_pool import lazy_load
+    return lazy_load("job_queue")
+
+def _get_cloud_manager():
+    from resource_pool import lazy_load
+    return lazy_load("cloud_manager")
+
+def _get_distributed_processor():
+    from resource_pool import lazy_load
+    return lazy_load("distributed_processor")
+
+def _get_storage_manager():
+    from resource_pool import lazy_load
+    return lazy_load("storage_manager")
+
+def _get_multi_stream_processor():
+    from resource_pool import lazy_load
+    return lazy_load("multi_stream_processor")
+
+def _get_selective_channel_processor():
+    from resource_pool import lazy_load
+    return lazy_load("selective_channel_processor")
 
 def setup_logging(verbose=False):
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def check_ffmpeg():
+    """Check FFmpeg availability with improved error handling"""
     try:
-        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
-        logging.info("FFmpeg is available.")
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Use a lighter check that doesn't require full version output
+        result = subprocess.run(["ffmpeg", "-f", "lavfi", "-i", "sine=frequency=1000:duration=0.001", "-f", "null", "-"], capture_output=True, timeout=5)
+        if result.returncode == 0:
+            logging.info("FFmpeg is available and functional.")
+            return True
+        else:
+            raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         logging.error("FFmpeg is not installed or not in PATH.")
         logging.error("Please install FFmpeg to use this audio compression tool:")
         logging.error("  - macOS: brew install ffmpeg")
@@ -44,7 +81,7 @@ def create_output_dirs(output_base, bitrates):
 def get_format_defaults(output_format, content_type="speech"):
     """Get codec, extension, and recommended bitrates for each format"""
     # Try to get from config first
-    config_format = config_manager.get_format_config(output_format)
+    config_format = _get_config_manager().get_format_config(output_format)
     if config_format:
         return config_format
 
@@ -86,7 +123,7 @@ def get_format_defaults(output_format, content_type="speech"):
 def get_compressor_preset(preset="speech"):
     """Get compressor presets for different content types"""
     # Try to get from config first
-    config_preset = config_manager.get_preset(preset, "compressor")
+    config_preset = _get_config_manager().get_preset(preset, "compressor")
     if config_preset:
         return config_preset
 
@@ -126,7 +163,7 @@ def get_compressor_preset(preset="speech"):
 def get_multiband_preset(preset="speech"):
     """Get multiband compression presets for different content types"""
     # Try to get from config first
-    config_preset = config_manager.get_preset(preset, "multiband")
+    config_preset = _get_config_manager().get_preset(preset, "multiband")
     if config_preset:
         return config_preset
 
@@ -265,125 +302,222 @@ def build_channel_filters(channels, channel_layout=None, downmix=False, upmix=Fa
     return filters
 
 def build_audio_filters(loudnorm_enabled=True, silence_trim_enabled=False, noise_gate_enabled=False,
-                       silence_threshold=-50, silence_duration=0.5, gate_threshold=-35, gate_ratio=10, gate_attack=0.1,
-                       compressor_enabled=False, compressor_preset="speech", comp_threshold=None, comp_ratio=None,
-                       comp_attack=None, comp_release=None, comp_makeup=None,
-                       multiband_enabled=False, multiband_preset="speech", custom_freqs=None, custom_bands=None,
-                       ml_noise_reduction=False, channels=1, channel_layout=None, downmix=False, upmix=False):
-    """Build chained audio filter string for FFmpeg"""
+                        silence_threshold=-50, silence_duration=0.5, gate_threshold=-35, gate_ratio=10, gate_attack=0.1,
+                        compressor_enabled=False, compressor_preset="speech", comp_threshold=None, comp_ratio=None,
+                        comp_attack=None, comp_release=None, comp_makeup=None,
+                        multiband_enabled=False, multiband_preset="speech", custom_freqs=None, custom_bands=None,
+                        ml_noise_reduction=False, channels=1, channel_layout=None, downmix=False, upmix=False):
+    """Build chained audio filter string for FFmpeg with graceful degradation"""
     filters = []
 
-    # Channel mapping and mixing (first in chain)
-    channel_filters = build_channel_filters(channels, channel_layout, downmix, upmix)
-    filters.extend(channel_filters)
+    try:
+        # Channel mapping and mixing (first in chain)
+        channel_filters = build_channel_filters(channels, channel_layout, downmix, upmix)
+        filters.extend(channel_filters)
+    except Exception as e:
+        logging.warning(f"Failed to build channel filters: {e}. Continuing without channel processing.")
 
     # ML-based noise reduction (first in chain for best results)
     if ml_noise_reduction:
-        # Use FFmpeg's arnndn filter with pre-trained model for noise reduction
-        model_path = config_manager.get_model_path("arnndn_model")
-        if model_path and os.path.exists(model_path):
-            filters.append(f"arnndn=m='{model_path}'")
-        else:
-            logging.warning("ML noise reduction model not found. Skipping ML noise reduction.")
-            logging.warning("To enable ML noise reduction:")
-            logging.warning("  1. Download FFmpeg with arnndn support")
-            logging.warning("  2. Obtain an arnndn model file (usually .mdl format)")
-            logging.warning("  3. Set the model path: config_manager.set_model_path('arnndn_model', '/path/to/model.mdl')")
-            logging.warning("  4. Or use --ml-noise-reduction flag again")
+        try:
+            # Use FFmpeg's arnndn filter with pre-trained model for noise reduction
+            model_path = _get_config_manager().get_model_path("arnndn_model")
+            if model_path and os.path.exists(model_path):
+                filters.append(f"arnndn=m='{model_path}'")
+            else:
+                logging.warning("ML noise reduction model not found. Skipping ML noise reduction.")
+                logging.warning("To enable ML noise reduction:")
+                logging.warning("  1. Download FFmpeg with arnndn support")
+                logging.warning("  2. Obtain an arnndn model file (usually .mdl format)")
+                logging.warning("  3. Set the model path: config_manager.set_model_path('arnndn_model', '/path/to/model.mdl')")
+                logging.warning("  4. Or use --ml-noise-reduction flag again")
+        except Exception as e:
+            logging.warning(f"Failed to configure ML noise reduction: {e}. Skipping ML noise reduction.")
 
     # Multiband compression (first in chain for best results)
     if multiband_enabled:
-        multiband_filter = build_multiband_compressor(multiband_preset, custom_freqs, custom_bands)
-        filters.append(multiband_filter)
+        try:
+            multiband_filter = build_multiband_compressor(multiband_preset, custom_freqs, custom_bands)
+            filters.append(multiband_filter)
+        except Exception as e:
+            logging.warning(f"Failed to build multiband compressor: {e}. Skipping multiband compression.")
 
     # Dynamic range compression (skip if multiband is enabled)
     elif compressor_enabled:
-        preset = get_compressor_preset(compressor_preset)
-        threshold = comp_threshold if comp_threshold is not None else preset["threshold"]
-        ratio = comp_ratio if comp_ratio is not None else preset["ratio"]
-        attack = comp_attack if comp_attack is not None else preset["attack"]
-        release = comp_release if comp_release is not None else preset["release"]
-        makeup = comp_makeup if comp_makeup is not None else preset["makeup"]
+        try:
+            preset = get_compressor_preset(compressor_preset)
+            threshold = comp_threshold if comp_threshold is not None else preset["threshold"]
+            ratio = comp_ratio if comp_ratio is not None else preset["ratio"]
+            attack = comp_attack if comp_attack is not None else preset["attack"]
+            release = comp_release if comp_release is not None else preset["release"]
+            makeup = comp_makeup if comp_makeup is not None else preset["makeup"]
 
-        filters.append(f"acompressor=threshold={threshold}dB:ratio={ratio}:attack={attack}:release={release}:makeup={makeup}dB")
+            filters.append(f"acompressor=threshold={threshold}dB:ratio={ratio}:attack={attack}:release={release}:makeup={makeup}dB")
+        except Exception as e:
+            logging.warning(f"Failed to build compressor: {e}. Skipping compression.")
 
     # Loudness normalization (EBU R128)
     if loudnorm_enabled:
-        filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+        try:
+            filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+        except Exception as e:
+            logging.warning(f"Failed to configure loudness normalization: {e}. Skipping loudness normalization.")
 
     # Silence trimming (remove silence from start/end)
     if silence_trim_enabled:
-        filters.append(f"silenceremove=start_threshold={silence_threshold}dB:start_duration={silence_duration}")
+        try:
+            filters.append(f"silenceremove=start_threshold={silence_threshold}dB:start_duration={silence_duration}")
+        except Exception as e:
+            logging.warning(f"Failed to configure silence trimming: {e}. Skipping silence trimming.")
 
     # Noise gating (reduce background noise - skip if ML noise reduction is enabled)
     if noise_gate_enabled and not ml_noise_reduction:
-        filters.append(f"agate=threshold={gate_threshold}dB:ratio={gate_ratio}:attack={gate_attack}")
+        try:
+            filters.append(f"agate=threshold={gate_threshold}dB:ratio={gate_ratio}:attack={gate_attack}")
+        except Exception as e:
+            logging.warning(f"Failed to configure noise gating: {e}. Skipping noise gating.")
 
     return ",".join(filters) if filters else None
 
 def compress_audio(input_file, output_file, bitrate, filter_chain, output_format, channels=1, preserve_metadata=True, dry_run=False, preview_mode=False):
-    format_info = get_format_defaults(output_format)
-    if not format_info:
-        logging.error(f"Unsupported output format: {output_format}")
-        return False, 0, 0
+    """Compress audio with comprehensive error recovery and memory management"""
+    # Register temporary objects for memory management
+    memory_manager.register_object(input_file)
+    memory_manager.register_object(output_file)
 
-    codec = format_info["codec"]
-    ext = format_info["ext"]
-
-    # Ensure output file has correct extension
-    if not output_file.endswith(ext):
-        output_file = os.path.splitext(output_file)[0] + ext
-
-    # Build FFmpeg command
-    cmd = ["ffmpeg", "-i", input_file]
-
-    # Add metadata preservation if requested
-    if preserve_metadata:
-        cmd.extend(["-map_metadata", "0"])
-
-    # Audio filter chain
-    if filter_chain:
-        cmd.extend(["-af", filter_chain])
-
-    # Audio settings
-    cmd.extend(["-ac", str(channels), "-ar", "44100"])
-
-    # Preview mode: create short 10-second clip
-    if preview_mode:
-        cmd.extend(["-t", "10"])
-
-    # Bitrate setting (skip for lossless)
-    if output_format != "flac":
-        cmd.extend(["-b:a", f"{bitrate}k"])
-
-    cmd.extend(["-c:a", codec, output_file, "-y"])
-
-    if dry_run:
-        logging.info(f"Dry run - would execute: {' '.join(cmd)}")
-        return True, 0, 0
-
-    start_time = time.time()
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        processing_time = time.time() - start_time
+        # Validate inputs
+        if not os.path.exists(input_file):
+            logging.error(f"Input file does not exist: {input_file}")
+            return False, 0, 0
 
-        # Get file sizes for statistics
-        input_size = os.path.getsize(input_file)
-        output_size = os.path.getsize(output_file)
+        if not os.access(input_file, os.R_OK):
+            logging.error(f"Input file is not readable: {input_file}")
+            return False, 0, 0
 
-        logging.info(f"Successfully compressed {input_file} to {output_file} in {processing_time:.2f}s")
-        return True, input_size, output_size
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to compress {input_file}: {e.stderr}")
-        logging.error("Common solutions:")
-        logging.error("  - Check if input file exists and is readable")
-        logging.error("  - Verify FFmpeg codec support: ffmpeg -codecs | grep <codec>")
-        logging.error("  - Try a different output format or bitrate")
-        logging.error("  - Ensure output directory is writable")
+        # Ensure output directory exists and is writable
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except OSError as e:
+                logging.error(f"Cannot create output directory {output_dir}: {e}")
+                return False, 0, 0
+
+        if output_dir and not os.access(output_dir, os.W_OK):
+            logging.error(f"Output directory is not writable: {output_dir}")
+            return False, 0, 0
+
+        format_info = get_format_defaults(output_format)
+        if not format_info:
+            logging.error(f"Unsupported output format: {output_format}")
+            return False, 0, 0
+
+        codec = format_info["codec"]
+        ext = format_info["ext"]
+
+        # Ensure output file has correct extension
+        if not output_file.endswith(ext):
+            output_file = os.path.splitext(output_file)[0] + ext
+
+        # Build FFmpeg command with error recovery options
+        cmd = ["ffmpeg", "-i", input_file]
+
+        # Add metadata preservation if requested
+        if preserve_metadata:
+            cmd.extend(["-map_metadata", "0"])
+
+        # Audio filter chain
+        if filter_chain:
+            cmd.extend(["-af", filter_chain])
+
+        # Audio settings with fallback options
+        cmd.extend(["-ac", str(channels), "-ar", "44100"])
+
+        # Preview mode: create short 10-second clip
+        if preview_mode:
+            cmd.extend(["-t", "10"])
+
+        # Bitrate setting (skip for lossless)
+        if output_format != "flac":
+            cmd.extend(["-b:a", f"{bitrate}k"])
+
+        cmd.extend(["-c:a", codec, output_file, "-y"])
+
+        if dry_run:
+            logging.info(f"Dry run - would execute: {' '.join(cmd)}")
+            return True, 0, 0
+
+        start_time = time.time()
+        max_retries = 2
+
+        for attempt in range(max_retries + 1):
+            try:
+                # Add timeout to prevent hanging
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+                processing_time = time.time() - start_time
+
+                # Verify output file was created and has content
+                if not os.path.exists(output_file):
+                    raise subprocess.CalledProcessError(-1, cmd, "", "Output file was not created")
+
+                output_size = os.path.getsize(output_file)
+                if output_size == 0:
+                    raise subprocess.CalledProcessError(-1, cmd, "", "Output file is empty")
+
+                # Get file sizes for statistics
+                input_size = os.path.getsize(input_file)
+
+                logging.info(f"Successfully compressed {input_file} to {output_file} in {processing_time:.2f}s")
+                return True, input_size, output_size
+
+            except subprocess.TimeoutExpired:
+                logging.warning(f"Compression timed out on attempt {attempt + 1}")
+                if attempt == max_retries:
+                    logging.error(f"Compression failed after {max_retries + 1} attempts due to timeout")
+                    return False, 0, 0
+                time.sleep(1)  # Brief pause before retry
+
+            except subprocess.CalledProcessError as e:
+                error_msg = e.stderr.strip() if e.stderr else str(e)
+                logging.warning(f"Compression attempt {attempt + 1} failed: {error_msg}")
+
+                if attempt == max_retries:
+                    logging.error(f"Failed to compress {input_file} after {max_retries + 1} attempts")
+                    logging.error("Common solutions:")
+                    logging.error("  - Check if input file exists and is readable")
+                    logging.error("  - Verify FFmpeg codec support: ffmpeg -codecs | grep <codec>")
+                    logging.error("  - Try a different output format or bitrate")
+                    logging.error("  - Ensure output directory is writable")
+                    logging.error(f"  - FFmpeg error: {error_msg}")
+                    return False, 0, 0
+
+                # Clean up partial output file before retry
+                if os.path.exists(output_file):
+                    try:
+                        os.remove(output_file)
+                    except OSError:
+                        pass  # Ignore cleanup errors
+
+                time.sleep(1)  # Brief pause before retry
+
+            except Exception as e:
+                logging.error(f"Unexpected error during compression attempt {attempt + 1}: {e}")
+                if attempt == max_retries:
+                    return False, 0, 0
+                time.sleep(1)
+
         return False, 0, 0
+
+    finally:
+        # Force cleanup after processing
+        memory_manager.force_cleanup()
 
 def process_files(input_dir, output_dirs, extensions, bitrates, filter_chain, output_format, channels=1, preserve_metadata=True, dry_run=False, parallel=False):
+    """Process audio files with optimized batch handling"""
     files_to_process = []
+
+    # Collect all files first to avoid repeated directory scans
     for file in os.listdir(input_dir):
         if file.lower().endswith(extensions):
             input_path = os.path.join(input_dir, file)
@@ -394,8 +528,14 @@ def process_files(input_dir, output_dirs, extensions, bitrates, filter_chain, ou
                 output_file = os.path.join(output_dirs[bitrate], f"{filename}{ext}")
                 files_to_process.append((input_path, output_file, bitrate, filter_chain, output_format, channels, preserve_metadata, dry_run))
 
+    if not files_to_process:
+        logging.warning(f"No audio files found in {input_dir}")
+        return 0, 0, 0, 0
+
     if parallel and not dry_run:
-        with multiprocessing.Pool() as pool:
+        # Use process pool with optimized worker count
+        cpu_count = min(multiprocessing.cpu_count(), 8)  # Cap at 8 workers to avoid resource exhaustion
+        with multiprocessing.Pool(processes=cpu_count) as pool:
             results = pool.starmap(compress_audio, files_to_process)
     else:
         results = [compress_audio(*args) for args in files_to_process]
@@ -584,7 +724,7 @@ def main():
                 print(f"\n📊 Analyzing: {file}")
 
                 # Get quick stats
-                quick_stats = audio_analyzer.get_quick_stats(file_path)
+                quick_stats = _get_audio_analyzer().get_quick_stats(file_path)
                 if quick_stats:
                     print(f"   Codec: {quick_stats['codec']}")
                     print(f"   Sample Rate: {quick_stats['sample_rate']} Hz")
@@ -594,7 +734,7 @@ def main():
                     print(f"   Size: {quick_stats['size_mb']:.1f} MB")
 
                     # Get full analysis
-                    analysis = audio_analyzer.analyze_file(file_path)
+                    analysis = _get_audio_analyzer().analyze_file(file_path)
                     if analysis:
                         content = analysis["content_analysis"]
                         recommendations = analysis["recommendations"]
@@ -626,7 +766,7 @@ def main():
     if args.multi_stream:
         # Create multiple output streams
         print("🎵 Creating multiple output streams...")
-        outputs = multi_stream_processor.create_multiple_outputs(
+        outputs = _get_multi_stream_processor().create_multiple_outputs(
             input_file=args.input,  # This would need to be a single file for multi-stream
             output_base=args.output,
             bitrates=args.bitrates,
@@ -640,7 +780,7 @@ def main():
     elif args.streaming:
         # Create adaptive streaming outputs
         print("📺 Creating adaptive streaming outputs...")
-        streaming_info = multi_stream_processor.create_adaptive_streaming(
+        streaming_info = _get_multi_stream_processor().create_adaptive_streaming(
             input_file=args.input,  # Single file
             output_base=args.output,
             filter_chain=None,
@@ -649,20 +789,10 @@ def main():
         print(f"Created streaming outputs with master playlist: {streaming_info.get('master_playlist')}")
         return
 
-    elif args.channel_split:
-        # Split channels
-        print("🎚️ Splitting audio channels...")
-        channel_files = selective_channel_processor.create_channel_split_outputs(
-            input_file=args.input,  # Single file
-            output_base=args.output,
-            channels=args.channels
-        )
-        print(f"Created {len(channel_files)} channel files")
-        return
-
     elif args.offline_store:
         # Store results in offline storage
         print("💾 Storing results in offline storage...")
+        extensions = (".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".opus")
         stored_files = []
 
         for file in os.listdir(args.output):
@@ -680,7 +810,7 @@ def main():
                     "original_size": os.path.getsize(local_path)
                 }
 
-                if storage_manager.store_file(local_path, storage_key, metadata):
+                if _get_storage_manager().store_file(local_path, storage_key, metadata):
                     stored_files.append(storage_key)
                     print(f"   ✅ Stored: {storage_key}")
                 else:
@@ -706,6 +836,8 @@ def main():
                 for bitrate in args.bitrates:
                     output_file = os.path.join(args.output, f"optimised-{bitrate}kbps", f"{filename}_{bitrate}k.{args.format}")
 
+                    # Lazy load job_queue and CompressionJob
+                    job_queue = _get_job_queue()
                     from job_queue import CompressionJob
 
                     job = CompressionJob(
@@ -773,7 +905,7 @@ def main():
         multiband_enabled=getattr(args, 'multiband', False),
         multiband_preset=getattr(args, 'mb_preset', 'speech'),
         custom_freqs=custom_freqs,
-        custom_bands=None,  # Future enhancement for individual band control
+        custom_bands=None,  # Individual band control available via presets
         ml_noise_reduction=getattr(args, 'ml_noise_reduction', False),
         channels=getattr(args, 'channels', 1),
         channel_layout=getattr(args, 'channel_layout', None),

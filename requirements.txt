@@ -6,7 +6,7 @@
 
 # Optional dependencies for enhanced functionality
 numpy>=1.21.0          # Advanced audio analysis and signal processing
-scipy>=1.7.0           # Scientific algorithms (alternative to NumPy)
+scipy>=1.7.0           # Signal processing and scientific algorithms
 boto3>=1.26.0          # AWS S3 cloud storage integration
 
 # GUI dependencies (choose one)
