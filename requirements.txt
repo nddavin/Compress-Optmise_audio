@@ -1,0 +1,30 @@
+# Pure Sound - Professional Audio Processing Suite
+# Requirements file for Python dependencies
+
+# Core dependencies (required)
+# Note: Multimedia backend (FFmpeg or GStreamer) must be installed separately
+
+# Optional dependencies for enhanced functionality
+numpy>=1.21.0          # Advanced audio analysis and signal processing
+scipy>=1.7.0           # Scientific algorithms (alternative to NumPy)
+boto3>=1.26.0          # AWS S3 cloud storage integration
+
+# GUI dependencies (choose one)
+# tkinter              # Usually included with Python (simple GUI)
+PyQt6>=6.4.0           # Feature-rich cross-platform GUI framework
+# PySide6>=6.4.0       # Alternative Qt bindings
+
+# Development dependencies (for testing and development)
+pytest>=7.0.0          # For running tests
+pytest-cov>=4.0.0      # For test coverage
+
+# Installation commands:
+# Basic functionality: pip install -r requirements.txt
+# Full features: pip install numpy scipy boto3 PyQt6
+# Minimal GUI: pip install PyQt6  # (tkinter usually pre-installed)
+# Cloud features: pip install boto3
+# Advanced analysis: pip install numpy scipy
+
+# System dependencies (install separately):
+# FFmpeg: brew install ffmpeg (macOS) or apt install ffmpeg (Ubuntu)
+# GStreamer: brew install gstreamer (macOS) or apt install gstreamer1.0-* (Ubuntu)

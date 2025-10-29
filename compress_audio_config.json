@@ -1,0 +1,138 @@
+{
+  "model_paths": {
+    "arnndn_model": "/usr/local/share/ffmpeg/arnndn-models/bd.cnr.mdl",
+    "custom_models_dir": "./models"
+  },
+  "presets": {
+    "speech": {
+      "compressor": {
+        "threshold": -20,
+        "ratio": 3,
+        "attack": 0.01,
+        "release": 0.1,
+        "makeup": 6
+      },
+      "multiband": {
+        "low_freq": 250,
+        "high_freq": 4000,
+        "low_threshold": -15,
+        "low_ratio": 2.5,
+        "low_attack": 0.01,
+        "low_release": 0.1,
+        "low_makeup": 3,
+        "mid_threshold": -18,
+        "mid_ratio": 3,
+        "mid_attack": 0.005,
+        "mid_release": 0.08,
+        "mid_makeup": 4,
+        "high_threshold": -20,
+        "high_ratio": 2,
+        "high_attack": 0.002,
+        "high_release": 0.05,
+        "high_makeup": 2
+      }
+    },
+    "music": {
+      "compressor": {
+        "threshold": -18,
+        "ratio": 4,
+        "attack": 0.005,
+        "release": 0.05,
+        "makeup": 4
+      },
+      "multiband": {
+        "low_freq": 200,
+        "high_freq": 5000,
+        "low_threshold": -12,
+        "low_ratio": 3,
+        "low_attack": 0.02,
+        "low_release": 0.15,
+        "low_makeup": 2,
+        "mid_threshold": -15,
+        "mid_ratio": 4,
+        "mid_attack": 0.01,
+        "mid_release": 0.1,
+        "mid_makeup": 3,
+        "high_threshold": -18,
+        "high_ratio": 2.5,
+        "high_attack": 0.005,
+        "high_release": 0.08,
+        "high_makeup": 1
+      }
+    },
+    "custom": {}
+  },
+  "output_formats": {
+    "mp3": {
+      "codec": "libmp3lame",
+      "ext": ".mp3",
+      "speech": [
+        64,
+        96,
+        128
+      ],
+      "music": [
+        128,
+        192,
+        256
+      ]
+    },
+    "aac": {
+      "codec": "aac",
+      "ext": ".m4a",
+      "speech": [
+        48,
+        64,
+        96
+      ],
+      "music": [
+        96,
+        128,
+        192
+      ]
+    },
+    "ogg": {
+      "codec": "libvorbis",
+      "ext": ".ogg",
+      "speech": [
+        48,
+        64,
+        96
+      ],
+      "music": [
+        96,
+        128,
+        160
+      ]
+    },
+    "opus": {
+      "codec": "libopus",
+      "ext": ".opus",
+      "speech": [
+        24,
+        32,
+        48
+      ],
+      "music": [
+        64,
+        96,
+        128
+      ]
+    },
+    "flac": {
+      "codec": "flac",
+      "ext": ".flac",
+      "speech": [],
+      "music": []
+    }
+  },
+  "default_settings": {
+    "format": "mp3",
+    "content_type": "speech",
+    "channels": 1,
+    "loudnorm_enabled": true,
+    "compressor_enabled": false,
+    "multiband_enabled": false,
+    "ml_noise_reduction": false
+  }
+}
