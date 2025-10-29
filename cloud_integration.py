@@ -215,7 +215,6 @@ class DistributedProcessor:
 
         logging.info(f"Submitted task {task_id}")
         return task_id
-        return task_id
 
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Get the status of a distributed task"""
@@ -661,20 +660,29 @@ _cloud_manager = None
 _storage_manager = None
 _distributed_processor = None
 
+# Lock for thread-safe lazy initialization
+_init_lock = threading.Lock()
+
 def get_cloud_manager() -> CloudStorageManager:
     global _cloud_manager
     if _cloud_manager is None:
-        _cloud_manager = CloudStorageManager()
+        with _init_lock:
+            if _cloud_manager is None:
+                _cloud_manager = CloudStorageManager()
     return _cloud_manager
 
 def get_storage_manager() -> StorageManager:
     global _storage_manager
     if _storage_manager is None:
-        _storage_manager = StorageManager()
+        with _init_lock:
+            if _storage_manager is None:
+                _storage_manager = StorageManager()
     return _storage_manager
 
 def get_distributed_processor() -> DistributedProcessor:
     global _distributed_processor
     if _distributed_processor is None:
-        _distributed_processor = DistributedProcessor(get_cloud_manager())
+        with _init_lock:
+            if _distributed_processor is None:
+                _distributed_processor = DistributedProcessor(get_cloud_manager())
     return _distributed_processor

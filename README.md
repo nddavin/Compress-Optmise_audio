@@ -397,6 +397,9 @@ Pure Sound is released under the MIT License. See the LICENSE file for more deta
 
 Contact & Support
 For questions, issues, or contributions:
-- Email: ndavindouglas@gmail.com
-- GitHub: Dark-stream
-- Documentation: See inline help with `python compress_audio.py --help`
+- **GitHub Issues**: [Create an issue](https://github.com/Dark-stream/pure-sound/issues) for bug reports and feature requests
+- **GitHub Discussions**: [Start a discussion](https://github.com/Dark-stream/pure-sound/discussions) for questions and general support
+- **Documentation**: Check the [Wiki](https://github.com/Dark-stream/pure-sound/wiki) for detailed guides and troubleshooting
+- **Security Issues**: Email security@puresound.dev for security-related concerns
+
+For inline help: `python compress_audio.py --help`

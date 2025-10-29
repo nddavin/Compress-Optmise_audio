@@ -2,6 +2,7 @@ import os
 import subprocess
 import json
 import logging
+import tempfile
 from typing import Dict, Any, Optional, Tuple
 
 try:
@@ -108,8 +109,8 @@ class AudioAnalyzer:
             "dynamic_range": "unknown",
             "frequency_content": "unknown",
             "noise_level": "unknown",
-            "speech_probability": 0.0,
-            "music_probability": 0.0
+            "speech_probability": 0,
+            "music_probability": 0
         }
 
         try:
@@ -131,8 +132,6 @@ class AudioAnalyzer:
 
     def _extract_audio_segment(self, input_file: str, duration: int = 30) -> Optional[str]:
         """Extract a short audio segment for analysis"""
-        import tempfile
-
         try:
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
                 temp_path = temp_file.name
@@ -146,7 +145,7 @@ class AudioAnalyzer:
             return temp_path
 
         except subprocess.CalledProcessError:
-            if 'temp_path' in locals() and os.path.exists(temp_path):
+            if os.path.exists(temp_path):
                 os.remove(temp_path)
             return None
 
@@ -158,8 +157,8 @@ class AudioAnalyzer:
             # Basic analysis without numpy
             analysis["content_type"] = "unknown"
             analysis["dynamic_range"] = "unknown"
-            analysis["speech_probability"] = 0.0
-            analysis["music_probability"] = 0.0
+            analysis["speech_probability"] = 0
+            analysis["music_probability"] = 0
             return analysis
 
         try:
@@ -175,16 +174,14 @@ class AudioAnalyzer:
                 # Convert to numpy array for analysis
                 if sample_width == 2:  # 16-bit
                     audio_data = np.frombuffer(frames, dtype=np.int16)
+                    audio_data = audio_data.astype(np.float32) / 32768.0
                 elif sample_width == 4:  # 32-bit
                     audio_data = np.frombuffer(frames, dtype=np.int32)
-                else:
-                    audio_data = np.frombuffer(frames, dtype=np.int8)
-
-                # Normalize to float
-                if sample_width == 2:
-                    audio_data = audio_data.astype(np.float32) / 32768.0
-                elif sample_width == 4:
                     audio_data = audio_data.astype(np.float32) / 2147483648.0
+                else:
+                    # 8-bit or other
+                    audio_data = np.frombuffer(frames, dtype=np.uint8)
+                    audio_data = audio_data.astype(np.float32) / 128.0 - 1.0
 
                 # Basic analysis
                 rms = np.sqrt(np.mean(audio_data**2))

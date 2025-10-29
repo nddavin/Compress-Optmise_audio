@@ -229,7 +229,14 @@ class JobProcessor(ABC):
         if self._initialized:
             # Cancel all running jobs
             for job_id in list(self._running_jobs.keys()):
-                self.cancel_job(job_id)
+                try:
+                    self.cancel_job(job_id)
+                except Exception as e:
+                    # Log error but continue shutdown
+                    self._publish_event("job_processor.cancel_failed", {
+                        "job_id": job_id,
+                        "error": str(e)
+                    })
 
             self._initialized = False
             self._publish_event("job_processor.shutdown", {

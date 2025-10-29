@@ -282,7 +282,11 @@ def initialize_resource_pools():
     resource_pool_manager.register_loader("di_container", lambda: di_container)
     resource_pool_manager.register_loader("service_locator", lambda: service_locator)
 
-initialize_resource_pools()
+try:
+    initialize_resource_pools()
+except ImportError:
+    # Resource pool not available yet
+    pass
 
 
 # Convenience functions for global access

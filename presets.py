@@ -303,16 +303,25 @@ class WorkflowEngine:
     def _handle_analyze(self, step: WorkflowStepConfig, input_files: List[str],
                        output_dir: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Handle analysis step"""
-        from audio_analysis import audio_analyzer
         results = {"success": True, "errors": [], "analysis_results": []}
+        
+        try:
+            from audio_analysis import audio_analyzer
+        except ImportError:
+            results["success"] = False
+            results["errors"].append("audio_analysis module not available")
+            return results
 
         for file_path in input_files:
-            analysis = audio_analyzer.analyze_file(file_path)
-            if analysis:
-                results["analysis_results"].append(analysis)
-                context["analysis_results"] = context.get("analysis_results", []) + [analysis]
-            else:
-                results["errors"].append(f"Failed to analyze {file_path}")
+            try:
+                analysis = audio_analyzer.analyze_file(file_path)
+                if analysis:
+                    results["analysis_results"].append(analysis)
+                    context["analysis_results"] = context.get("analysis_results", []) + [analysis]
+                else:
+                    results["errors"].append(f"Failed to analyze {file_path}")
+            except Exception as e:
+                results["errors"].append(f"Error analyzing {file_path}: {str(e)}")
 
         return results
 

@@ -249,7 +249,7 @@ class ConfigManager:
         if self.config_file.exists():
             self._last_modified = self.config_file.stat().st_mtime
         else:
-            self._last_modified = time.time()
+            self._last_modified = 0
 
     def save_config(self, config: Optional[Dict[str, Any]] = None) -> None:
         """Save configuration to file with error recovery"""
