@@ -95,7 +95,7 @@ class CompressionJob:
 class JobQueue:
     """Thread-safe job queue for batch audio compression"""
 
-    def __init__(self, max_workers: int = 4, persist_file: str = "job_queue.json"):
+    def __init__(self, max_workers: int = 4, persist_file: str = "job_queue.json", rate_limit_per_minute: int = 60):
         self.queue = queue.PriorityQueue()
         self.jobs: Dict[str, CompressionJob] = {}
         self.max_workers = max_workers
@@ -104,6 +104,33 @@ class JobQueue:
         self.persist_file = Path(persist_file)
         self.lock = threading.Lock()
         self.callbacks: Dict[str, Callable] = {}
+
+        # Rate limiting for batch operations
+        self.rate_limit_per_minute = rate_limit_per_minute
+    def _check_rate_limit(self) -> bool:
+        """Check if we're within rate limits for batch operations"""
+        with self.rate_limit_lock:
+            current_time = time.time()
+            # Remove requests older than 1 minute
+            self.request_times = [t for t in self.request_times if current_time - t < 60]
+
+            # Check if we're under the limit
+            if len(self.request_times) >= self.rate_limit_per_minute:
+                return False
+
+            # Add current request
+            self.request_times.append(current_time)
+            return True
+
+    def add_job_rate_limited(self, job: CompressionJob) -> Optional[str]:
+        """Add a job with rate limiting"""
+        if not self._check_rate_limit():
+            logging.warning("Rate limit exceeded for job queue operations")
+            return None
+
+        return self.add_job(job)
+        self.request_times: List[float] = []
+        self.rate_limit_lock = threading.Lock()
 
         # Load persisted jobs
         self._load_jobs()
@@ -134,7 +161,12 @@ class JobQueue:
         logging.info("Job queue stopped")
 
     def add_job(self, job: CompressionJob) -> str:
-        """Add a job to the queue"""
+        """Add a job to the queue with rate limiting"""
+        # Check rate limit for batch operations
+        if not self._check_rate_limit():
+            logging.warning("Rate limit exceeded for job queue operations")
+            raise Exception("Rate limit exceeded. Please wait before submitting more jobs.")
+
         with self.lock:
             self.jobs[job.job_id] = job
             # Priority queue: (priority, created_at, job_id)

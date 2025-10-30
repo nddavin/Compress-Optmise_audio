@@ -34,6 +34,103 @@ def _get_distributed_processor():
 def _get_storage_manager():
     from resource_pool import lazy_load
     return lazy_load("storage_manager")
+def _validate_audio_file_format(file_path: str) -> bool:
+    """Validate audio file format using multiple methods for security"""
+    if not os.path.exists(file_path):
+        return False
+
+    # Method 1: Extension-based validation (fast, primary check)
+    supported_extensions = ('.wav', '.mp3', '.m4a', '.flac', '.aac', '.ogg', '.opus')
+    if not file_path.lower().endswith(supported_extensions):
+        return False
+
+    # Method 2: MIME type validation (more secure, if available)
+    try:
+        import mimetypes
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if mime_type:
+            audio_mime_types = {
+                'audio/wav', 'audio/wave', 'audio/mpeg', 'audio/mp3', 'audio/mp4',
+                'audio/flac', 'audio/aac', 'audio/ogg', 'audio/opus', 'audio/x-wav',
+                'audio/x-mp3', 'audio/x-mp4', 'audio/x-flac', 'audio/x-aac'
+            }
+            if mime_type not in audio_mime_types:
+                logging.warning(f"Suspicious MIME type for audio file: {mime_type}")
+                return False
+    except ImportError:
+        # mimetypes not available, rely on extension check
+        pass
+    except Exception as e:
+        logging.warning(f"MIME type validation failed: {e}")
+
+    # Method 3: FFmpeg probe validation (most secure, but slower)
+    try:
+        # Quick probe to verify it's actually an audio file
+        probe_cmd = [
+            "ffprobe", "-v", "quiet", "-print_format", "json",
+            "-show_format", "-show_streams", "-select_streams", "a:0", file_path
+        ]
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=10)
+
+        if result.returncode != 0:
+            logging.warning(f"FFmpeg probe failed for {file_path}: {result.stderr}")
+            return False
+
+        # Verify we have audio stream
+        import json
+        probe_data = json.loads(result.stdout)
+        streams = probe_data.get("streams", [])
+        has_audio = any(stream.get("codec_type") == "audio" for stream in streams)
+
+        if not has_audio:
+            logging.warning(f"No audio stream found in {file_path}")
+            return False
+
+    except subprocess.TimeoutExpired:
+        logging.warning(f"FFmpeg probe timed out for {file_path}")
+        return False
+    except (json.JSONDecodeError, KeyError, subprocess.CalledProcessError) as e:
+        logging.warning(f"FFmpeg validation failed for {file_path}: {e}")
+        return False
+    except Exception as e:
+        logging.warning(f"Unexpected error during file validation: {e}")
+        return False
+
+    return True
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent path traversal and special character issues"""
+    import re
+
+    if not filename:
+        return filename
+
+    # Get just the filename part (prevent path traversal)
+    filename = os.path.basename(filename)
+
+    # Remove or replace problematic characters
+    # Allow: letters, numbers, spaces, dots, hyphens, underscores
+    # Replace others with underscores
+    sanitized = re.sub(r'[^\w\s\.-]', '_', filename)
+
+    # Remove multiple consecutive underscores
+    sanitized = re.sub(r'_+', '_', sanitized)
+
+    # Remove leading/trailing whitespace and underscores
+    sanitized = sanitized.strip(' _')
+
+    # Ensure it's not empty and doesn't start with a dot (hidden files)
+    if not sanitized or sanitized.startswith('.'):
+        sanitized = f"file_{hash(filename) % 10000}"
+
+    # Limit filename length to prevent issues
+    max_length = 255  # Common filesystem limit
+    if len(sanitized) > max_length:
+        name, ext = os.path.splitext(sanitized)
+        # Keep extension, truncate name
+        max_name_length = max_length - len(ext)
+        sanitized = name[:max_name_length] + ext
+
+    return sanitized
 
 def _get_multi_stream_processor():
     from resource_pool import lazy_load
@@ -394,6 +491,23 @@ def compress_audio(input_file, output_file, bitrate, filter_chain, output_format
         if not os.access(input_file, os.R_OK):
             logging.error(f"Input file is not readable: {input_file}")
             return False, 0, 0
+
+        # Security: Check file size limits to prevent DoS attacks
+        max_file_size_mb = _get_config_manager().get_setting('max_file_size_mb', 500)  # Default 500MB
+        input_size = os.path.getsize(input_file)
+        input_size_mb = input_size / (1024 * 1024)
+
+        if input_size_mb > max_file_size_mb:
+            logging.error(f"Input file too large: {input_size_mb:.1f}MB (max: {max_file_size_mb}MB)")
+            return False, 0, 0
+
+        # Security: Validate file format using MIME type checking
+        if not _validate_audio_file_format(input_file):
+            logging.error(f"Invalid or unsupported audio file format: {input_file}")
+            return False, 0, 0
+
+        # Security: Sanitize output filename to prevent path traversal
+        output_file = _sanitize_filename(output_file)
 
         # Ensure output directory exists and is writable
         output_dir = os.path.dirname(output_file)
