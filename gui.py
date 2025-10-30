@@ -7,10 +7,10 @@ import sys
 import logging
 import time
 from pathlib import Path
-import json
+from typing import Any
 
 class AudioCompressorGUI:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Pure Sound - Professional Audio Processing")
         self.root.geometry("900x700")
@@ -88,7 +88,7 @@ class AudioCompressorGUI:
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN)
         status_bar.pack(fill='x', padx=10, pady=(0, 10))
 
-    def setup_main_tab(self, parent):
+    def setup_main_tab(self, parent: ttk.Frame):
         # Input/Output section
         io_frame = ttk.LabelFrame(parent, text="Input/Output", padding=10)
         io_frame.pack(fill='x', padx=10, pady=5)
@@ -152,7 +152,7 @@ class AudioCompressorGUI:
         preset_frame.pack(fill='x', padx=10, pady=5)
 
         # Create preset buttons in a grid
-        presets = preset_manager.get_all_presets()
+        presets = self.preset_manager.get_all_presets()
         for i, preset in enumerate(presets[:6]):  # Show first 6 presets
             btn = ttk.Button(preset_frame, text=f"{preset.icon} {preset.name}",
                            command=lambda p=preset: self.apply_preset(p))
@@ -164,7 +164,7 @@ class AudioCompressorGUI:
         workflow_frame.pack(fill='x', padx=10, pady=5)
 
         # Workflow buttons
-        workflows = preset_manager.get_all_custom_workflows()
+        workflows = self.preset_manager.get_all_custom_workflows()
         for i, workflow in enumerate(workflows[:3]):  # Show first 3 workflows
             btn = ttk.Button(workflow_frame, text=f"{workflow.icon} {workflow.name}",
                            command=lambda w=workflow: self.execute_custom_workflow(w))
@@ -201,7 +201,7 @@ class AudioCompressorGUI:
         self.log_text = scrolledtext.ScrolledText(progress_frame, height=10, wrap=tk.WORD)
         self.log_text.pack(fill='both', expand=True)
 
-    def setup_settings_tab(self, parent):
+    def setup_settings_tab(self, parent: ttk.Frame):
         # Compressor settings
         comp_frame = ttk.LabelFrame(parent, text="Compressor Settings", padding=10)
         comp_frame.pack(fill='x', padx=10, pady=5)
@@ -254,7 +254,7 @@ class AudioCompressorGUI:
         ttk.Checkbutton(channel_frame, text="Downmix to Stereo", variable=self.downmix_var).grid(row=1, column=0, sticky='w', padx=(0,20))
         ttk.Checkbutton(channel_frame, text="Upmix to Surround", variable=self.upmix_var).grid(row=1, column=1, sticky='w', padx=(0,20))
 
-    def setup_slider(self, parent, label, var, min_val, max_val, default, row, col, col_span=1):
+    def setup_slider(self, parent: Any, label: str, var: Any, min_val: float, max_val: float, default: float, row: int, col: int, col_span: int = 1):
         ttk.Label(parent, text=label).grid(row=row, column=col*2, sticky='w', pady=2)
         var.set(default)
         scale = tk.Scale(parent, from_=min_val, to=max_val, resolution=0.1, orient=tk.HORIZONTAL, variable=var)
@@ -262,7 +262,7 @@ class AudioCompressorGUI:
         if col_span > 1:
             parent.grid_columnconfigure(col*2+1, weight=1)
 
-    def setup_preview_tab(self, parent):
+    def setup_preview_tab(self, parent: ttk.Frame):
         # Preview controls
         control_frame = ttk.Frame(parent)
         control_frame.pack(fill='x', padx=10, pady=10)
@@ -298,10 +298,10 @@ class AudioCompressorGUI:
         if directory:
             self.output_dir.set(directory)
 
-    def on_format_change(self, event=None):
+    def on_format_change(self, event: Any = None):
         self.update_bitrates()
 
-    def on_content_type_change(self, event=None):
+    def on_content_type_change(self, event: Any = None):
         self.update_bitrates()
 
     def update_bitrates(self):
@@ -402,15 +402,15 @@ class AudioCompressorGUI:
             self.root.after(0, lambda: self.update_results(processed, failed, total_input_size, total_output_size, start_time))
 
         except ValueError as e:
-            self.root.after(0, lambda: messagebox.showerror("Input Error", str(e)))
+            self.root.after(0, lambda err=e: messagebox.showerror("Input Error", str(err)))
         except RuntimeError as e:
-            self.root.after(0, lambda: messagebox.showerror("Processing Error", str(e)))
+            self.root.after(0, lambda err=e: messagebox.showerror("Processing Error", str(err)))
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Unexpected Error", f"An unexpected error occurred: {str(e)}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("Unexpected Error", f"An unexpected error occurred: {str(err)}"))
         finally:
             self.root.after(0, self.reset_ui)
 
-    def update_results(self, processed, failed, total_input_size, total_output_size, start_time):
+    def update_results(self, processed: int, failed: int, total_input_size: Any, total_output_size: Any, start_time: float):
         total_time = time.time() - start_time
 
         result_text = f"✅ Processing complete!\n"
@@ -615,7 +615,7 @@ class AudioCompressorGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Preview generation failed: {str(e)}")
 
-    def apply_preset(self, preset):
+    def apply_preset(self, preset: Any):
         """Apply a workflow preset to the current settings"""
         try:
             from presets import preset_manager
@@ -657,7 +657,7 @@ class AudioCompressorGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Could not apply recommendations: {str(e)}")
 
-    def execute_custom_workflow(self, workflow):
+    def execute_custom_workflow(self, workflow: Any):
         """Execute a custom workflow"""
         try:
             input_dir = self.input_dir.get()

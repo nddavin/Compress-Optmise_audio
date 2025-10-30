@@ -3,7 +3,7 @@ import subprocess
 import json
 import logging
 import tempfile
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 
 try:
     import numpy as np
@@ -157,8 +157,8 @@ class AudioAnalyzer:
             # Basic analysis without numpy
             analysis["content_type"] = "unknown"
             analysis["dynamic_range"] = "unknown"
-            analysis["speech_probability"] = 0
-            analysis["music_probability"] = 0
+            analysis["speech_probability"] = 0.0
+            analysis["music_probability"] = 0.0
             return analysis
 
         try:
@@ -217,8 +217,8 @@ class AudioAnalyzer:
                 # Normalize scores
                 total_score = speech_score + music_score
                 if total_score > 0:
-                    analysis["speech_probability"] = speech_score / total_score
-                    analysis["music_probability"] = music_score / total_score
+                    analysis["speech_probability"] = float(speech_score) / total_score
+                    analysis["music_probability"] = float(music_score) / total_score
 
                     if analysis["speech_probability"] > 0.6:
                         analysis["content_type"] = "speech"

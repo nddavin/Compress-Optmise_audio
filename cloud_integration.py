@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import threading
 import time
 import json
@@ -32,7 +32,7 @@ class UnifiedStorageManager:
 class CloudStorageManager:
     """Manages cloud storage operations for distributed audio processing"""
 
-    def __init__(self, bucket_name: str = None, region: str = "us-east-1"):
+    def __init__(self, bucket_name: Optional[str] = None, region: str = "us-east-1"):
         self.bucket_name = bucket_name or os.getenv("AWS_BUCKET_NAME")
         self.region = region
         self.s3_client = None
@@ -71,7 +71,7 @@ class CloudStorageManager:
 
     def upload_file(self, local_path: str, s3_key: str) -> bool:
         """Upload a file to S3 with retry logic"""
-        if not self.is_available():
+        if not self.is_available() or self.s3_client is None:
             logging.warning("Cloud storage not available, upload skipped")
             return False
 
@@ -100,7 +100,7 @@ class CloudStorageManager:
 
     def download_file(self, s3_key: str, local_path: str) -> bool:
         """Download a file from S3 with retry logic"""
-        if not self.is_available():
+        if not self.is_available() or self.s3_client is None:
             logging.warning("Cloud storage not available, download skipped")
             return False
 
@@ -125,9 +125,7 @@ class CloudStorageManager:
 
     def list_files(self, prefix: str = "") -> List[str]:
         """List files in S3 bucket with optional prefix"""
-    def list_files(self, prefix: str = "") -> List[str]:
-        """List files in S3 bucket with optional prefix"""
-        if not self.is_available():
+        if not self.is_available() or self.s3_client is None:
             return []
 
         try:
@@ -141,8 +139,10 @@ class CloudStorageManager:
         except ClientError as e:
             logging.error(f"Failed to list files: {e}")
             return []
+
+    def delete_file(self, s3_key: str) -> bool:
         """Delete a file from S3"""
-        if not self.is_available():
+        if not self.is_available() or self.s3_client is None:
             return False
 
         try:
@@ -155,7 +155,7 @@ class CloudStorageManager:
 
     def get_presigned_url(self, s3_key: str, expiration: int = 3600) -> Optional[str]:
         """Generate a presigned URL for temporary access"""
-        if not self.is_available():
+        if not self.is_available() or self.s3_client is None:
             return None
 
         try:
@@ -172,7 +172,7 @@ class CloudStorageManager:
 class DistributedProcessor:
     """Manages distributed audio processing across multiple nodes"""
 
-    def __init__(self, cloud_manager: CloudStorageManager = None):
+    def __init__(self, cloud_manager: Optional[CloudStorageManager] = None):
         self.cloud_manager = cloud_manager or CloudStorageManager()
         self.workers: Dict[str, 'ProcessingNode'] = {}
         self.tasks: Dict[str, Dict[str, Any]] = {}
@@ -292,7 +292,7 @@ class ProcessingNode:
         self.worker_id = worker_id
         self.capabilities = capabilities
         self.cloud_manager = cloud_manager
-        self.current_task = None
+        self.current_task: Optional[Dict[str, Any]] = None
         self.lock = threading.Lock()
 
     def is_available(self) -> bool:
@@ -426,7 +426,7 @@ class OfflineStorageManager:
         except IOError:
             logging.warning("Could not save offline storage metadata")
 
-    def store_file(self, local_path: str, key: str, metadata: Dict[str, Any] = None) -> bool:
+    def store_file(self, local_path: str, key: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """Store a file in offline storage"""
         try:
             # Create subdirectories if needed
@@ -558,7 +558,7 @@ class OfflineStorageManager:
 class StorageManager:
     """Unified storage manager supporting both cloud and offline storage"""
 
-    def __init__(self, bucket_name: str = None, region: str = "us-east-1", offline_storage_dir: str = "./offline_storage"):
+    def __init__(self, bucket_name: Optional[str] = None, region: str = "us-east-1", offline_storage_dir: str = "./offline_storage"):
         self.bucket_name = bucket_name or os.getenv("AWS_BUCKET_NAME")
         self.region = region
         self.offline_storage_dir = Path(offline_storage_dir)

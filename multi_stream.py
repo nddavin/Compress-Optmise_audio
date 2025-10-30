@@ -1,9 +1,8 @@
 import os
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 import subprocess
-import tempfile
 
 class MultiStreamProcessor:
     """Handles multiple output streams for audio processing"""
