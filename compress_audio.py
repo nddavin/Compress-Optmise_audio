@@ -97,6 +97,10 @@ def _validate_audio_file_format(file_path: str) -> bool:
         return False
 
     return True
+<<<<<<< HEAD
+=======
+
+>>>>>>> f2049a4 (Add security enhancements: file size limits, MIME validation, rate limiting, filename sanitization)
 def _sanitize_filename(filename: str) -> str:
     """Sanitize filename to prevent path traversal and special character issues"""
     import re
