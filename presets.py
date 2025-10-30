@@ -5,6 +5,7 @@ music mastering, and batch conversion.
 """
 
 import json
+import logging
 import os
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, field
@@ -613,7 +614,7 @@ class PresetManager:
                 for preset_id, preset_data in data.items():
                     self.presets[preset_id] = WorkflowPreset.from_dict(preset_data)
         except Exception as e:
-            print(f"Error loading presets: {e}")
+            logging.error(f"Error loading presets: {e}")
 
     def _load_workflows(self):
         """Load custom workflows from file"""
@@ -626,7 +627,7 @@ class PresetManager:
                 for workflow_id, workflow_data in data.items():
                     self.custom_workflows[workflow_id] = CustomWorkflow.from_dict(workflow_data)
         except Exception as e:
-            print(f"Error loading workflows: {e}")
+            logging.error(f"Error loading workflows: {e}")
 
     def _save_presets(self):
         """Save presets to file"""
@@ -635,7 +636,7 @@ class PresetManager:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"Error saving presets: {e}")
+            logging.error(f"Error saving presets: {e}")
 
     def _save_workflows(self):
         """Save custom workflows to file"""
@@ -644,7 +645,7 @@ class PresetManager:
             with open(self.workflows_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"Error saving workflows: {e}")
+            logging.error(f"Error saving workflows: {e}")
 
     def _ensure_default_presets(self):
         """Ensure default presets are available"""

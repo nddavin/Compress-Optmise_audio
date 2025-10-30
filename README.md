@@ -1,10 +1,12 @@
 # Pure Sound - Professional Audio Processing Suite
 
-Overview
+## Overview
+
 Pure Sound is a comprehensive Python-based audio processing suite that leverages FFmpeg for professional-grade audio compression and optimization. It features advanced audio analysis, intelligent parameter suggestions, distributed processing capabilities, and extensive customization options, making it ideal for eLearning content creation, podcasting, broadcasting, and general audio optimization workflows.
 
-Features
+## Features
 
+### Core Audio Processing
 - **Multiple Codecs**: MP3, AAC, OGG, Opus, and lossless FLAC compression
 - **Smart Bitrate Defaults**: Content-aware defaults (speech vs music) with Opus optimized for low-bitrate speech
 - **Parallel Processing**: Multiprocessing support for faster batch compression
@@ -14,8 +16,12 @@ Features
 - **Dry-Run Mode**: Preview compression commands without execution
 - **Comprehensive Statistics**: File sizes, compression ratios, processing times
 - **Robust Error Handling**: Input validation, FFmpeg error checking, filesystem safety with actionable suggestions
+
+### User Interfaces
 - **Flexible CLI**: Extensive command-line options for all features
 - **Graphical User Interface**: Visual parameter adjustment with real-time preview
+
+### Advanced Features
 - **Audio Analysis Engine**: Automatic content detection and compression recommendations
 - **Job Queue System**: Background batch processing with priority management
 - **Cloud Integration**: Distributed processing across multiple nodes with AWS S3 support
@@ -24,9 +30,10 @@ Features
 - **Offline Storage**: Local file storage with metadata indexing
 - **Configuration Management**: JSON-based presets and model path management
 
-Requirements
+## Requirements
 
-- Python 3.6 or higher
+### System Requirements
+- Python 3.8 or higher (tested with Python 3.13)
 - **Primary Multimedia Backend**: Choose one of the following:
   - **FFmpeg** (Recommended): Comprehensive audio/video processing framework
     - macOS: `brew install ffmpeg`
@@ -37,27 +44,37 @@ Requirements
     - Ubuntu/Debian: `sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good python3-gst-1.0`
     - macOS: `brew install gstreamer gst-plugins-base gst-plugins-good gst-python`
     - Windows: Download from https://gstreamer.freedesktop.org/download/
-- **Optional Dependencies**:
-  - **NumPy**: `pip install numpy` (for advanced audio analysis and signal processing)
-  - **SciPy**: `pip install scipy` (alternative to NumPy with additional scientific algorithms)
-  - **GUI Frameworks** (choose one):
-    - **Tkinter**: Usually included with Python (simple GUI interface)
-    - **PyQt6/PySide6**: `pip install PyQt6` or `pip install PySide6` (feature-rich cross-platform GUI)
-  - **Cloud Integration**: `pip install boto3` (for AWS S3 cloud storage)
 
-Usage
+### Python Dependencies
 
-**Command Line:**
+#### Core Dependencies (Required)
+```bash
+pip install -r requirements.txt
+```
+
+#### Optional Dependencies
+- **NumPy**: `pip install numpy` (for advanced audio analysis and signal processing)
+- **SciPy**: `pip install scipy` (alternative to NumPy with additional scientific algorithms)
+- **GUI Frameworks** (choose one):
+  - **Tkinter**: Usually included with Python (simple GUI interface)
+  - **PyQt6/PySide6**: `pip install PyQt6` or `pip install PySide6` (feature-rich cross-platform GUI)
+- **Cloud Integration**: `pip install boto3` (for AWS S3 cloud storage)
+
+## Usage
+
+### Command Line Interface
 ```bash
 python compress_audio.py [OPTIONS]
 ```
 
-**Graphical Interface:**
+### Graphical User Interface
 ```bash
 python compress_audio.py --gui
 ```
 
-Options:
+### Command Line Options
+
+#### Basic Options
 - `-i, --input DIR`: Input directory containing audio files (default: current directory)
 - `-o, --output DIR`: Output base directory (default: current directory)
 - `-b, --bitrates BITRATE [BITRATE ...]`: Bitrates in kbps (uses format/content defaults if not specified)
@@ -68,7 +85,7 @@ Options:
 - `--upmix`: Upmix mono/stereo to multichannel (requires --channel-layout)
 - `-t, --content-type {speech,music}`: Content type for bitrate defaults (default: speech)
 
-Audio Processing Filters:
+#### Audio Processing Filters
 - `-n, --no-normalize`: Skip loudness normalization
 - `--compressor`: Enable dynamic range compression
 - `--comp-preset {speech,music,broadcast,gentle}`: Compressor preset (default: speech)
@@ -90,7 +107,7 @@ Audio Processing Filters:
 - `--gate-ratio FLOAT`: Noise gate compression ratio (default: 10)
 - `--gate-attack FLOAT`: Noise gate attack time in seconds (default: 0.1)
 
-Advanced Options:
+#### Advanced Options
 - `--analyze`: Analyze audio files and provide compression recommendations
 - `--multi-stream`: Create multiple output streams with different formats/bitrates
 - `--streaming`: Create adaptive bitrate streaming outputs (HLS/DASH)
@@ -99,7 +116,7 @@ Advanced Options:
 - `--offline-store`: Store results in offline storage with metadata indexing
 - `--channel-split`: Split audio into separate channel files
 
-Other Options:
+#### Other Options
 - `-m, --no-metadata`: Don't preserve metadata
 - `-p, --parallel`: Enable parallel processing
 - `-d, --dry-run`: Show commands without executing
@@ -107,43 +124,47 @@ Other Options:
 - `-v, --verbose`: Enable verbose logging
 - `--gui`: Launch graphical user interface
 
-Examples
+## Examples
 
-**Basic Usage - Speech Content (Opus Recommended):**
+### Basic Usage
+
+#### Speech Content (Opus Recommended)
 ```bash
 python compress_audio.py -f opus
 # Uses Opus with speech-optimized bitrates: 24, 32, 48 kbps
 ```
 
-**Music Content with AAC:**
+#### Music Content with AAC
 ```bash
 python compress_audio.py -f aac -t music
 # Uses AAC with music-optimized bitrates: 96, 128, 192 kbps
 ```
 
-**Custom Bitrates and Parallel Processing:**
+#### Custom Bitrates and Parallel Processing
 ```bash
 python compress_audio.py -i /path/to/audio -b 64 128 -p -v
 ```
 
-**Lossless Compression:**
+#### Lossless Compression
 ```bash
 python compress_audio.py -f flac -c 2
 # FLAC compression ignores bitrates, preserves stereo
 ```
 
-**Dry Run to Preview:**
+### Advanced Usage
+
+#### Dry Run to Preview
 ```bash
 python compress_audio.py -d -f opus -b 32
 ```
 
-**Audio Analysis and Recommendations:**
+#### Audio Analysis and Recommendations
 ```bash
 python compress_audio.py --analyze
 # Analyzes audio files and provides intelligent compression suggestions
 ```
 
-**Advanced Audio Processing with Filters:**
+#### Audio Processing with Filters
 ```bash
 # Clean up speech recordings with silence trimming and noise gating
 python compress_audio.py \
@@ -176,19 +197,21 @@ python compress_audio.py \
   -v
 ```
 
-**Batch Processing with Job Queue:**
+### Advanced Features
+
+#### Batch Processing with Job Queue
 ```bash
 python compress_audio.py --job-queue -i /path/to/audio -f opus -p
 # Processes files in background with queue management
 ```
 
-**Multiple Output Streams:**
+#### Multiple Output Streams
 ```bash
 python compress_audio.py --multi-stream -i input.wav -o output/ -b 64 128 256
 # Creates multiple bitrate versions simultaneously
 ```
 
-**Cloud Integration:**
+#### Cloud Integration
 ```bash
 # Set AWS credentials and bucket
 export AWS_ACCESS_KEY_ID=your_key
@@ -199,59 +222,70 @@ python compress_audio.py -f opus --cloud-upload
 # Processes and uploads results to cloud storage
 ```
 
-**Offline Storage:**
+#### Offline Storage
 ```bash
 python compress_audio.py -f opus --offline-store
 # Stores compressed files with metadata indexing
 ```
 
-**Channel-Specific Processing:**
+#### Channel-Specific Processing
 ```bash
 python compress_audio.py --channel-split -i stereo.wav -o channels/
 # Splits stereo file into separate left/right channel files
 ```
 
-**Graphical Interface:**
+#### Graphical Interface
 ```bash
 python compress_audio.py --gui
 # Launches visual parameter adjustment interface
 ```
 
-Architecture
+## Architecture
 
 Pure Sound consists of several modular components with modern design patterns:
 
-## Core Architecture Patterns
+### Core Architecture Patterns
 
-### Event-Driven Communication
+#### Event-Driven Communication
 - **Centralized Event Bus** (`events.py`): All modules communicate through a pub-sub event system
 - **Loose Coupling**: Modules don't need direct dependencies on each other
 - **Asynchronous Processing**: Events are processed asynchronously for better performance
 - **Event History**: Full event history for debugging and monitoring
 
-### Dependency Injection
+#### Dependency Injection
 - **Service Container** (`di_container.py`): Centralized dependency management
 - **Automatic Injection**: Dependencies are resolved automatically based on type hints
 - **Service Locator**: Global service registry for easy access
 - **Lifecycle Management**: Services can be initialized and shut down properly
 
-### Standardized Interfaces
+#### Standardized Interfaces
 - **Abstract Base Classes** (`interfaces.py`): Common interfaces for audio processors, storage providers, etc.
 - **Protocol-Based Design**: Type-safe interfaces using Python protocols
 - **Data Transfer Objects**: Standardized data structures for module communication
 
-## Module Components
+### Module Components
 
+#### Core Modules
 - **Core Engine** (`compress_audio.py`): Main compression logic and CLI interface
 - **Configuration Manager** (`config.py`): JSON-based settings and preset management
 - **Audio Analyzer** (`audio_analysis.py`): Content detection and recommendation engine
+
+#### Processing Modules
 - **Job Queue** (`job_queue.py`): Background processing with priority management
 - **Cloud Integration** (`cloud_integration.py`): Distributed processing and storage
 - **Multi-Stream Processor** (`multi_stream.py`): Multiple output format generation
-- **GUI Interface** (`gui.py`): Visual parameter adjustment and monitoring
-- **Test Suite** (`test_new_system.py`): Comprehensive unit testing for new architecture
+- **Resource Pool** (`resource_pool.py`): Connection and resource management
 
-## Module Interactions
+#### User Interface
+- **GUI Interface** (`gui.py`): Visual parameter adjustment and monitoring
+- **Presets Manager** (`presets.py`): Workflow presets and custom workflows
+
+#### Testing & Infrastructure
+- **Test Suite** (`test_new_system.py`, `test_compress_audio.py`): Comprehensive unit testing
+- **Dependency Injection** (`di_container.py`): Service management and injection
+- **Event System** (`events.py`): Cross-module communication
+
+### Module Interactions
 
 The system is designed with clear separation of concerns and standardized communication:
 
@@ -262,6 +296,7 @@ The system is designed with clear separation of concerns and standardized commun
 5. **config.py**: Configuration management and persistence
 6. **cloud_integration.py**: Cloud storage and distributed processing
 7. **multi_stream.py**: Multiple output stream generation
+8. **presets.py**: Workflow management and presets
 
 All modules communicate through the event system and use dependency injection for service resolution.
 
@@ -300,18 +335,36 @@ class MyProcessor(AudioProcessor):
         pass
 ```
 
-Input/Output
+### Workflow Presets
+```python
+from presets import preset_manager
+
+# Get available presets
+presets = preset_manager.get_all_presets()
+print(f"Available presets: {[p.name for p in presets]}")
+
+# Apply a preset
+podcast_preset = preset_manager.get_preset("podcast_optimization")
+print(f"Podcast preset format: {podcast_preset.format}")
+print(f"Podcast preset bitrates: {podcast_preset.bitrates}")
+```
+
+## Input/Output
+
+### Supported Formats
 - **Input Formats**: WAV, MP3, M4A, FLAC, AAC, OGG, Opus
+- **Output Formats**: MP3, AAC, OGG, Opus, FLAC (lossless)
 - **Output Structure**: Creates `optimised-{bitrate}kbps/` subdirectories
 - **Naming**: Maintains original filenames with appropriate extensions
 - **Safety**: Never modifies original files
 - **Metadata**: Preserves audio metadata and adds compression parameters
 
-Configuration
+### Configuration
 - **Config File**: `compress_audio_config.json` (auto-created)
 - **Model Paths**: Configurable paths for ML models and presets
 - **Presets**: Customizable compression presets for different content types
 - **Defaults**: User-configurable default settings
+- **Workflows**: Custom workflow definitions with step-by-step processing
 
 Codec Recommendations
 
@@ -323,74 +376,182 @@ Codec Recommendations
 | Archival | FLAC | N/A (lossless) | Perfect quality preservation |
 | Streaming | AAC | 64, 128, 256 kbps | Adaptive bitrate support |
 
-Advanced Features
+## Advanced Features
 
+### Audio Processing
 - **Audio Analysis**: Automatic content type detection (speech/music)
 - **Smart Recommendations**: Bitrate and format suggestions based on analysis
+- **Dynamic Range Compression**: Single-band and multiband compression presets
+- **Noise Reduction**: ML-based noise reduction with FFmpeg arnndn support
+- **Silence Processing**: Automatic silence trimming and noise gating
+- **Loudness Normalization**: EBU R128 standard compliance
+
+### Workflow Management
+- **Preset Workflows**: 8 built-in presets for common audio processing tasks
+- **Custom Workflows**: User-defined multi-step processing pipelines
+- **Workflow Engine**: Step-by-step execution with dependency management
+- **Parameter Suggestions**: AI-powered parameter recommendations
+
+### Processing Infrastructure
 - **Job Queue**: Background processing with progress tracking and persistence
 - **Cloud Processing**: Distributed compression across multiple nodes
 - **Multi-Stream**: Simultaneous output in multiple formats/bitrate
 - **Channel Processing**: Selective filter application per audio channel
-- **Offline Storage**: Local storage with metadata indexing and search
-- **GUI Interface**: Visual parameter adjustment with real-time preview
+- **Resource Pooling**: Connection and resource management for performance
 
-Notes
-- Opus provides superior quality at low bitrates, especially for speech
-- Mono conversion significantly reduces file sizes for voice content
-- Parallel processing speeds up batch operations but uses more CPU
-- Loudness normalization ensures consistent perceived volume across files
-- Dry-run mode helps verify settings before large batch operations
+### Storage & Distribution
+- **Offline Storage**: Local storage with metadata indexing and search
+- **Cloud Integration**: AWS S3 support with automatic failover
+- **Streaming Support**: HLS/DASH adaptive bitrate streaming
+- **Metadata Management**: Comprehensive metadata preservation and indexing
+
+### User Interface
+- **GUI Interface**: Visual parameter adjustment with real-time preview
+- **Command Line**: Extensive CLI options for automation and scripting
+- **Progress Monitoring**: Real-time progress tracking and statistics
+
+## Notes
+
+### Audio Processing Tips
+- **Opus** provides superior quality at low bitrates, especially for speech content
+- **Mono conversion** significantly reduces file sizes for voice content (podcasts, eLearning)
+- **Parallel processing** speeds up batch operations but uses more CPU resources
+- **Loudness normalization** ensures consistent perceived volume across files
+- **Dry-run mode** helps verify settings before large batch operations
+
+### System Requirements
 - Audio analysis requires NumPy for advanced features
 - Cloud features require AWS credentials and boto3 library
 - Job queue persists across sessions for reliability
+- ML noise reduction requires FFmpeg with arnndn model support
+
+### Performance Considerations
+- Use parallel processing for large batch operations
+- Enable job queue for long-running background processing
+- Cloud processing distributes workload across multiple nodes
+- Resource pooling optimizes connection reuse and memory usage
 
 ## Getting Started
 
-1. **Choose Your Multimedia Backend:**
-   ```bash
-   # Option A: FFmpeg (Recommended)
-   brew install ffmpeg                    # macOS
-   sudo apt install ffmpeg               # Ubuntu/Debian
+### Installation
 
-   # Option B: GStreamer (Alternative)
-   brew install gstreamer gst-plugins-base gst-plugins-good gst-python  # macOS
-   sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-base \
-                    gstreamer1.0-plugins-good python3-gst-1.0            # Ubuntu
-   ```
+1. **Install Multimedia Backend:**
+    ```bash
+    # Option A: FFmpeg (Recommended)
+    brew install ffmpeg                    # macOS
+    sudo apt install ffmpeg               # Ubuntu/Debian
+
+    # Option B: GStreamer (Alternative)
+    brew install gstreamer gst-plugins-base gst-plugins-good gst-python  # macOS
+    sudo apt install gstreamer1.0-tools gstreamer1.0-plugins-base \
+                     gstreamer1.0-plugins-good python3-gst-1.0            # Ubuntu
+    ```
 
 2. **Install Python Dependencies:**
-   ```bash
-   # Basic functionality
-   pip install -r requirements.txt
+    ```bash
+    # Basic functionality
+    pip install -r requirements.txt
 
-   # Full feature set (recommended)
-   pip install numpy scipy boto3 PyQt6
-   ```
+    # Full feature set (recommended)
+    pip install numpy scipy boto3 PyQt6
+    ```
 
-3. **Run Pure Sound:**
-   ```bash
-   # Launch GUI (requires GUI framework)
-   python compress_audio.py --gui
+### Quick Start
 
-   # Command line analysis
-   python compress_audio.py --analyze
+1. **Launch GUI (requires GUI framework):**
+    ```bash
+    python compress_audio.py --gui
+    ```
 
-   # Basic compression
-   python compress_audio.py -f opus
-   ```
+2. **Command line analysis:**
+    ```bash
+    python compress_audio.py --analyze
+    ```
+
+3. **Basic compression:**
+    ```bash
+    python compress_audio.py -f opus
+    ```
+
+### First Steps
+
+1. **Test Installation:**
+    ```bash
+    python compress_audio.py --help
+    ```
+
+2. **Analyze Your Audio:**
+    ```bash
+    python compress_audio.py --analyze -i /path/to/audio/files
+    ```
+
+3. **Try Different Presets:**
+    ```bash
+    # Speech content (podcasts, eLearning)
+    python compress_audio.py -f opus -t speech
+
+    # Music content
+    python compress_audio.py -f aac -t music
+
+    # Lossless archival
+    python compress_audio.py -f flac
+    ```
 
 ## Key Features
 
-- 🎵 **Professional Audio Processing** - Industry-standard compression with FFmpeg/GStreamer
-- 🧠 **AI-Powered Analysis** - Automatic content detection and recommendations
-- ☁️ **Cloud Integration** - Distributed processing with AWS S3 support
-- 📋 **Job Queue Management** - Background processing with priority control
-- 🎛️ **Visual Interface** - Intuitive GUI for parameter adjustment (Tkinter/PyQt)
-- 🔄 **Multi-Stream Output** - Simultaneous multiple format generation
-- 🎚️ **Channel Processing** - Selective filter application per channel
-- 💾 **Offline Storage** - Local storage with metadata indexing
-- ⚙️ **Configuration Management** - Customizable presets and settings
-- 🔧 **Flexible Backend** - Choose between FFmpeg or GStreamer engines
+### 🎵 Professional Audio Processing
+- Industry-standard compression with FFmpeg/GStreamer backends
+- Multiple codec support: MP3, AAC, OGG, Opus, FLAC
+- Advanced audio filters: compression, normalization, noise reduction
+- Content-aware bitrate optimization
+
+### 🧠 AI-Powered Analysis
+- Automatic content detection (speech vs music)
+- Intelligent parameter suggestions based on analysis
+- Dynamic range analysis and compression recommendations
+- ML-based noise reduction support
+
+### ☁️ Cloud Integration
+- Distributed processing with AWS S3 support
+- Automatic failover between cloud and local storage
+- Background upload/download with progress tracking
+- Connection pooling for optimal performance
+
+### 📋 Job Queue Management
+- Background processing with priority control
+- Persistent job queue across sessions
+- Rate limiting and resource management
+- Real-time progress monitoring
+
+### 🎛️ User Interfaces
+- Intuitive GUI for parameter adjustment (Tkinter/PyQt)
+- Extensive command-line options for automation
+- Real-time preview and analysis
+- Workflow preset management
+
+### 🔄 Advanced Processing
+- Multi-stream output generation
+- Selective channel processing per audio channel
+- Adaptive bitrate streaming (HLS/DASH)
+- Custom workflow pipelines
+
+### 💾 Storage & Metadata
+- Offline storage with metadata indexing
+- Comprehensive metadata preservation
+- Search and organization capabilities
+- Automatic cleanup and maintenance
+
+### ⚙️ Configuration Management
+- Customizable presets and settings
+- JSON-based configuration with validation
+- Model path management for ML features
+- User-defined workflow templates
+
+### 🔧 Flexible Architecture
+- Choose between FFmpeg or GStreamer engines
+- Modular design with dependency injection
+- Event-driven communication between modules
+- Extensible plugin architecture
 
 License
 Pure Sound is released under the MIT License. See the LICENSE file for more details.
