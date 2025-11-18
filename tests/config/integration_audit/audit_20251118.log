@@ -1,0 +1,1 @@
+{"log_id": "-x_VrxvmmdrWRYbPPH-jlA", "timestamp": 1763448441.0552719, "user_id": "integration_user", "action": "integration.test", "resource": "integration_resource", "details": {"test": "integration"}, "ip_address": "127.0.0.1", "user_agent": "unknown", "outcome": "success", "risk_level": "low", "session_id": null}

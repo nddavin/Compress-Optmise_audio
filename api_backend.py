@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import threading
 import queue
+import os
 
 # FastAPI for REST endpoints
 try:
