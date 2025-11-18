@@ -1,0 +1,78 @@
+# Pure Sound Development Environment
+# For development with hot-reload and debugging capabilities
+
+FROM python:3.13-slim-bullseye
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies including development tools
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsndfile1-dev \
+    libopus0 \
+    libmp3lame0 \
+    libfdk-aac2 \
+    libsamplerate0-dev \
+    pkg-config \
+    build-essential \
+    git \
+    vim \
+    curl \
+    wget \
+    htop \
+    tree \
+    less \
+    man-db \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install development tools
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    numpy \
+    scipy \
+    boto3 \
+    PyQt6 \
+    pytest \
+    pytest-cov \
+    black \
+    flake8 \
+    mypy \
+    ipython \
+    jupyter \
+    notebook \
+    debugpy
+
+# Create app user
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Install development dependencies
+COPY requirements-dev.txt .
+RUN pip install --no-cache-dir -r requirements-dev.txt
+
+# Create directories
+RUN mkdir -p /app/outputs /app/models /app/config && \
+    chown -R appuser:appuser /app
+
+# Switch to app user
+USER appuser
+
+# Expose ports for debugging and potential web interface
+EXPOSE 5678 8080
+
+# Default development command
+CMD ["python", "-m", "debugpy", "--listen", "0.0.0.0:5678", "--wait-for-client", "compress_audio.py", "--gui"]
